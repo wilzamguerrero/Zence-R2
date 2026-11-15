@@ -5,7 +5,7 @@
 | Entrega | Implementar | Comprobar |
 | --- | --- | --- |
 | 0 · Núcleo inicial disponible | Carga de JSON versionado, puertos tipados, plan de ejecución, simulación simple de partículas y control numérico. | Ejecutar el ejemplo. Confirmar reproducibilidad con la misma semilla y los mismos cambios de control a 30, 60 y 144 FPS en condiciones regulares. |
-| 1 · Estudio visual | Vite/React, adaptador Rete, inspector, editor de escena Three.js, cámara de autoría y canvas del visor. Guardar y volver a abrir el patch. | Conectar el nodo de intensidad con el emisor. Ver el cambio en el visor al editar el valor y reabrir el archivo. Una conexión inválida mantiene el patch válido. |
+| 1 · Estudio visual disponible | Vite/React, grafo visual ligero e inspector, visor de escena Three.js con cámara orbital. Guardar y volver a abrir el patch. | Conectar el nodo de intensidad con el emisor. Ver el cambio en el visor al editar el valor y reabrir el archivo. Una conexión inválida mantiene el patch válido. |
 | 2 · Proyección y control móvil | Cámara de programa, ventana a pantalla completa, vista previa, bridge LAN, QR, slider, pad XY, botones y cambio de cues. | Con el computador conectado a un segundo monitor y un Android o iPhone en una red local sin internet, controlar el patch desde el teléfono. Desconectarlo y reconectarlo, verificar revisión, valores y deduplicación de cues. |
 | 3 · Código, Hydra y medios | Nodo de script con entradas y salidas, Hydra por canvas, textura en material Three.js, escena a entrada de Hydra, GLB, video y análisis FFT. | Cargar un GLB, ponerle una textura generativa, ajustarla con audio, cambiar el código durante el ensayo y comprobar que un error mantiene activo el último programa válido. Medir cada sentido del puente con tamaños comparables. |
 | 4 · Simulación y salida avanzada | Fuerzas, colisiones, replay por ticks, mapa de proyección de cuatro esquinas, máscaras y cues encadenados. | Guardar y repetir una toma. Usar patrón de calibración y sobrevivir a reconexión de la pantalla. Verificar que un fundido o negro de emergencia no dependa del teléfono. |
@@ -14,11 +14,10 @@
 
 ### Siguiente implementación
 
-1. Crear `apps/studio` con Vite y React. Mantener la autenticidad del primer flujo cargando `examples/particles.zence.json` como archivo del proyecto desde el visor.
-2. Conectar el ejemplo al visor de Three.js con un buffer de posiciones preasignado. Alimentar el reloj fijo desde `requestAnimationFrame` y permitir pausa y reset. Medir el coste de copias antes de fijar la API de actualización de buffers.
-3. Mostrar los tres nodos del ejemplo en Rete. Aplicar ediciones a una copia validada del documento y conservar el plan y la escena activos ante errores. Registrar por separado los cambios de parámetro y de topología.
-4. Crear la primera ventana de programa y probarla con un segundo monitor. Agregar un parámetro publicable, cuyo mismo ID pueda usar el futuro cliente táctil. Inspeccionar el frame de salida, la frecuencia y el uso de GPU para fijar el presupuesto de cada ventana.
-5. Conectar el bridge LAN con ese mismo parámetro. Probar el circuito completo con un móvil antes de añadir automatizaciones o sensores.
+1. Agregar una ventana de programa con cámara propia. Probar pantalla completa con un segundo monitor y medir la presentación en ambos visores.
+2. Definir el descriptor de un control publicado que use el mismo ID que el parámetro del grafo y pueda configurarse desde el inspector.
+3. Conectar el bridge LAN a ese parámetro. Probar el circuito completo con un móvil antes de añadir automatizaciones o sensores.
+4. Probar grafos grandes con el editor inicial. Evaluar Rete.js cuando las pruebas pidan navegación, selección múltiple o agrupación más avanzadas.
 
 ### Objetivos de rendimiento y operación
 

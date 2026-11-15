@@ -2,17 +2,17 @@ import { fixedStepSeconds } from "./clock.ts";
 
 type Point3 = { x: number; y: number; z: number };
 
-type Node =
+export type Node =
   | { id: string; kind: "control.number"; initial: number; min: number; max: number }
   | { id: string; kind: "simulation.particles"; seed: number; count: number }
   | { id: string; kind: "scene.points" };
 
-type Edge = {
+export type Edge = {
   from: { node: string; port: string };
   to: { node: string; port: string };
 };
 
-type Project = { schemaVersion: 1; nodes: Node[]; edges: Edge[]; scene: string };
+export type Project = { schemaVersion: 1; nodes: Node[]; edges: Edge[]; scene: string };
 type Particles = { positions: Point3[]; velocities: Point3[] };
 type PortType = "number" | "points";
 type Ports = { inputs: Record<string, PortType>; outputs: Record<string, PortType> };
@@ -83,7 +83,7 @@ function readEndpoint(value: unknown): Edge["from"] {
   return { node: name(endpoint.node), port: name(endpoint.port) };
 }
 
-function readProject(value: unknown): Project {
+export function readProject(value: unknown): Project {
   const data = object(value);
   if (data.schemaVersion !== 1) throw new TypeError("Unsupported project version");
   return {
@@ -200,6 +200,22 @@ export class ProjectRuntime {
         position.y += velocity.y * distance;
         position.z += velocity.z * distance;
       }
+    }
+  }
+
+  get pointCount(): number {
+    return this.scenes.get(this.sceneId)!.length;
+  }
+
+  writePositions(buffer: Float32Array): void {
+    const points = this.scenes.get(this.sceneId)!;
+    if (buffer.length < points.length * 3) throw new RangeError("Position buffer is too small");
+    for (let index = 0; index < points.length; index += 1) {
+      const { x, y, z } = points[index];
+      const offset = index * 3;
+      buffer[offset] = x;
+      buffer[offset + 1] = y;
+      buffer[offset + 2] = z;
     }
   }
 

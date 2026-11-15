@@ -48,7 +48,7 @@ flowchart TD
 | `assistant` | Construye un contexto del proyecto, consulta proveedores configurables y valida operaciones propuestas antes de previsualizarlas. |
 | `apps/studio` y `apps/bridge` | El estudio contiene editor, salida y cliente remoto. El puente local sirve la sesión LAN y amplía el acceso a protocolos, medios o dispositivos. |
 
-La base publicada implementa un subconjunto de `engine` con tres tipos de nodo, validación de JSON, compilación del grafo, un reloj fijo y un ejemplo ejecutable. La tabla describe los límites para crecer. Se pueden incorporar módulos a medida que el primer flujo los necesite.
+El estudio inicial implementa tres tipos de nodo y un grafo visual en React con conexiones editables, inspector, visor Three.js y persistencia de proyectos JSON. El motor comparte la simulación de paso fijo con el ejemplo de terminal. La tabla describe los límites para crecer.
 
 ### Proyecto, puertos y relojes
 
@@ -63,7 +63,7 @@ La base publicada implementa un subconjunto de `engine` con tres tipos de nodo, 
 | Decisión | Responsabilidad y validación |
 | --- | --- |
 | TypeScript, React, Vite | Aplicación web y motor tipado compartido. Arrancar en un solo repositorio y dividir paquetes por las interfaces que realmente se implementen. |
-| Rete.js + React | Candidato inicial para grafo, pan, zoom, conexiones e integración del inspector. Adaptar su modelo al documento propio y probar edición de 200 nodos antes de consolidar. React Flow queda como alternativa si resulta más fácil mantener o extender el editor con el mismo modelo. |
+| Rete.js + React | El estudio inicial usa un grafo ligero en React sobre el documento propio. Evaluar un adaptador Rete.js en un caso de 200 nodos y para selección múltiple o agrupación. React Flow queda como alternativa sobre el mismo documento. |
 | Three.js + WebGL 2 | Visor, escena, cámaras, luces y salida de cámara a textura. Representar entidades mediante datos serializables y conservar objetos Three.js en el adaptador. |
 | Hydra-synth | Fuente o efecto enchufable para código visual. Acoplar su avance al reloj de Zence cuando se use `tick` manual. Crear primero una prueba de puente por canvas. |
 | Node.js + WebSocket | Primera sesión LAN y panel táctil servido por el puente local. Aislar el transporte del banco de parámetros. |

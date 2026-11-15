@@ -54,3 +54,16 @@ test("clock caps catch-up work and rejects invalid elapsed time", () => {
   assert.equal(clock.advance(0, noop), 0);
   assert.throws(() => clock.advance(-1, noop), /nonnegative/);
 });
+
+test("the viewport can read positions into a reused buffer", () => {
+  const runtime = new ProjectRuntime(demo);
+  const positions = new Float32Array(runtime.pointCount * 3);
+  runtime.tick();
+  runtime.writePositions(positions);
+  const first = runtime.snapshot()[0]!;
+  assert.deepEqual([...positions.subarray(0, 3)], [first.x, first.y, first.z].map(Math.fround));
+  runtime.tick();
+  runtime.writePositions(positions);
+  assert.notEqual(positions[0], Math.fround(first.x));
+  assert.throws(() => runtime.writePositions(new Float32Array(3)), /too small/);
+});
