@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "scene": "stage",
+  "nodes": [
+    { "id": "intensity", "kind": "control.number", "initial": 1, "min": 0, "max": 4 },
+    { "id": "particles", "kind": "simulation.particles", "count": 32, "seed": 42 },
+    { "id": "stage", "kind": "scene.points" }
+  ],
+  "edges": [
+    { "from": { "node": "intensity", "port": "value" }, "to": { "node": "particles", "port": "intensity" } },
+    { "from": { "node": "particles", "port": "points" }, "to": { "node": "stage", "port": "points" } }
+  ]
+}
