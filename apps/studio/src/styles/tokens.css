@@ -1,0 +1,45 @@
+:root {
+  color-scheme: dark;
+  --font-ui: "Space Grotesk", system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, monospace;
+
+  --shell: #181a17;
+  --panel: #20221e;
+  --graph: #1b1e19;
+  --panel-heading: #252722;
+  --line: #383c32;
+  --line-bright: #505743;
+  --text: #eeede4;
+  --muted: #a6ac9a;
+  --dim: #848c7a;
+  --accent: #defa79;
+  --accent-text: #252c12;
+  --accent-soft: color-mix(in srgb, var(--accent) 10%, transparent);
+  --points-soft: color-mix(in srgb, var(--points) 10%, transparent);
+  --node-surface-soft: color-mix(in srgb, var(--node-surface) 10%, transparent);
+  --signal: #e5fb92;
+  --points: #b8a5f7;
+  --warning: #ffc27d;
+  --grid-glow: #292e22;
+  --node-body: #252922;
+  --node-header: #303429;
+  --node-surface: #a8dddc;
+  --focus-halo: #defa7914;
+  --wire-shadow: #151710;
+  --output-field: #151913;
+  --notice-bg: #282a22;
+  --view-frame: #838d6b;
+  --axis-x: #edb195;
+  --axis-z: #b2c6fe;
+
+  --viewport-bg: #191c18;
+  --viewport-grid-major: #515b42;
+  --viewport-grid-minor: #333b2e;
+  --viewport-orbit: #879768;
+
+  --radius: 10px;
+  --workspace-gap: 12px;
+  --graph-width: minmax(310px, 0.84fr);
+  --view-width: minmax(340px, 1.4fr);
+  --inspector-width: minmax(214px, 240px);
+}

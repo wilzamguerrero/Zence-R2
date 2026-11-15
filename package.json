@@ -1,0 +1,32 @@
+{
+  "name": "zence-r2",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "vite apps/studio --port 5173 --strictPort",
+    "typecheck": "tsc --noEmit",
+    "build": "npm run typecheck && vite build apps/studio",
+    "preview": "vite preview apps/studio --port 4173 --strictPort",
+    "test": "node --test packages/engine/project.test.ts"
+  },
+  "dependencies": {
+    "@fontsource/ibm-plex-mono": "^5.3.0",
+    "@fontsource/space-grotesk": "^5.3.0",
+    "lucide-react": "^1.73.0",
+    "react": "^19.3.1",
+    "react-dom": "^19.3.1",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@types/three": "^0.187.0",
+    "typescript": "^5.9.3",
+    "vite": "^7.3.8"
+  }
+}
