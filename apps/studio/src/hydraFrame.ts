@@ -49,6 +49,19 @@ export function frameDocument(): string {
   window.high = () => controls.__high ?? 0;
   window.bpm = () => controls.__bpm ?? 120;
   window.beat = () => controls.__beat ?? 0;
+  window.bodyActivity = () => controls.__bodyActivity ?? 0;
+  window.handsDist = () => controls.__handsDist ?? 0;
+  window.leftOpen = () => controls.__leftOpen ?? 0;
+  window.rightOpen = () => controls.__rightOpen ?? 0;
+  window.leftPinch = () => controls.__leftPinch ?? 0;
+  window.rightPinch = () => controls.__rightPinch ?? 0;
+  window.poseY = (joint = "head") => joint === "head" ? (controls.__headY ?? 0) : (controls.__bodyActivity ?? 0);
+  window.hand = (side = "left", metric = "open") => {
+    const s = side === "right" ? "right" : "left";
+    if (metric === "pinch") return controls["__" + s + "Pinch"] ?? 0;
+    if (metric === "spread") return controls["__" + s + "Spread"] ?? 0;
+    return controls["__" + s + "Open"] ?? 0;
+  };
   const tell = data => parent.postMessage(data, "*");
   addEventListener("message", async event => {
     if(event.source !== parent) return;

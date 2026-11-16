@@ -3,3 +3,4 @@ reference/
 dist/
 *.local
 apps/studio/public/vendor/
+apps/studio/public/wasm/

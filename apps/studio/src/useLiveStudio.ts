@@ -3,6 +3,7 @@ import QRCode from "qrcode";
 import type { Node } from "../../../packages/engine/project.ts";
 import { frameDocument } from "./hydraFrame.ts";
 import type { Playback } from "./playback.ts";
+import { sharedMocap } from "./mocap/mocapRuntime.ts";
 
 export function useLiveStudio(
   code: string,
@@ -226,6 +227,15 @@ export function useLiveStudio(
             __high: audioLevels.current.high,
             __bpm: latest.current.bpm,
             __beat: beatPhase,
+            __bodyActivity: sharedMocap.state.activity,
+            __handsDist: sharedMocap.state.handsDist,
+            __headY: sharedMocap.state.headY,
+            __leftOpen: sharedMocap.state.leftHand.open,
+            __rightOpen: sharedMocap.state.rightHand.open,
+            __leftPinch: sharedMocap.state.leftHand.pinch,
+            __rightPinch: sharedMocap.state.rightHand.pinch,
+            __leftSpread: sharedMocap.state.leftHand.spread,
+            __rightSpread: sharedMocap.state.rightHand.spread,
           },
         });
       }

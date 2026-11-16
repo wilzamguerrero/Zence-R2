@@ -1704,6 +1704,9 @@ h1 {
 .rete-socket-hydra {
   background: #f0b35a;
 }
+.rete-socket-skeleton {
+  background: #68d8d6;
+}
 
 .rete-wire {
   overflow: visible !important;
@@ -1746,6 +1749,54 @@ h1 {
 }
 .rete-wire-hydra {
   color: #f0b35a;
+}
+.rete-wire-skeleton {
+  color: #68d8d6;
+}
+
+.mocap-panel h4 {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.mocap-status-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mocap-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10.5px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--line);
+}
+
+.mocap-pill.is-ok {
+  color: #68d8d6;
+  border-color: rgba(104, 216, 214, 0.45);
+  background: rgba(104, 216, 214, 0.12);
+}
+
+.mocap-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.mocap-actions .button.is-active {
+  background: var(--accent);
+  color: var(--ink-bright);
+  border-color: var(--accent);
 }
 
 /* Rete 3D Embedded Nodes (CSS3DRenderer in Three.js Viewport) */

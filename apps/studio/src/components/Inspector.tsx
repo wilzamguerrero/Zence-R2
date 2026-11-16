@@ -5,13 +5,17 @@ import {
   CircleDot,
   Copy,
   Disc,
+  Hand,
+  Layers,
   Link2Off,
   Palette,
+  PersonStanding,
   Radio,
   RotateCw,
   Sparkles,
   Timer,
   Trash2,
+  User,
   Waves,
 } from "lucide-react";
 import { useState } from "react";
@@ -22,9 +26,12 @@ import type {
   MathOp,
   Node,
   Project,
+  SkeletonEmitMode,
+  SkeletonZone,
 } from "../../../../packages/engine/project.ts";
 import { cablesSwatches, nodeTypes, portLabels } from "../studio.ts";
 import type { NodeMeta, ViewSettings } from "../studio.ts";
+import { MocapPanel } from "./MocapPanel.tsx";
 
 const icons: Record<Node["kind"], typeof Activity> = {
   "control.number": Radio,
@@ -41,6 +48,11 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "hydra.modulate": Activity,
   "hydra.color": Palette,
   "hydra.out": Box,
+  "mocap.body": PersonStanding,
+  "mocap.hands": Hand,
+  "scene.skeletonRig": User,
+  "particles.skeleton": Sparkles,
+  "particles.merge": Layers,
   "simulation.particles": CircleDot,
   "scene.points": Box,
 };
@@ -387,6 +399,135 @@ export function Inspector({
               </label>
             )}
 
+            {node.kind === "mocap.body" && (
+              <>
+                <label className="field">
+                  Vista espejo
+                  <input
+                    type="checkbox"
+                    checked={node.mirror}
+                    onChange={(e) => onNode({ ...node, mirror: e.target.checked })}
+                  />
+                </label>
+                {numInput("Suavizado", node.smoothing, (smoothing) => onNode({ ...node, smoothing }), {
+                  min: 0,
+                  max: 0.95,
+                  step: 0.05,
+                })}
+                {numInput("Escala", node.scale, (scale) => onNode({ ...node, scale }), {
+                  min: 0.2,
+                  max: 5,
+                  step: 0.1,
+                })}
+              </>
+            )}
+
+            {node.kind === "mocap.hands" && (
+              <>
+                <label className="field">
+                  Seguimiento de dedos
+                  <input
+                    type="checkbox"
+                    checked={node.fingers}
+                    onChange={(e) => onNode({ ...node, fingers: e.target.checked })}
+                  />
+                </label>
+                {numInput("Suavizado", node.smoothing, (smoothing) => onNode({ ...node, smoothing }), {
+                  min: 0,
+                  max: 0.95,
+                  step: 0.05,
+                })}
+                {numInput("Ganancia", node.spreadGain, (spreadGain) => onNode({ ...node, spreadGain }), {
+                  min: 0.1,
+                  max: 4,
+                  step: 0.1,
+                })}
+              </>
+            )}
+
+            {node.kind === "scene.skeletonRig" && (
+              <>
+                <label className="field">
+                  Mostrar huesos
+                  <input
+                    type="checkbox"
+                    checked={node.showBones}
+                    onChange={(e) => onNode({ ...node, showBones: e.target.checked })}
+                  />
+                </label>
+                <label className="field">
+                  Mostrar nodos
+                  <input
+                    type="checkbox"
+                    checked={node.showJoints}
+                    onChange={(e) => onNode({ ...node, showJoints: e.target.checked })}
+                  />
+                </label>
+                <label className="field">
+                  Animar modelo GLB/FBX
+                  <input
+                    type="checkbox"
+                    checked={node.retargetModel}
+                    onChange={(e) => onNode({ ...node, retargetModel: e.target.checked })}
+                  />
+                </label>
+                {numInput("Tamaño junta", node.jointSize, (jointSize) => onNode({ ...node, jointSize }), {
+                  min: 0.2,
+                  max: 4,
+                  step: 0.1,
+                })}
+              </>
+            )}
+
+            {node.kind === "particles.skeleton" && (
+              <>
+                <label className="field">
+                  Zona del esqueleto
+                  <select
+                    className="mode-select"
+                    value={node.zone}
+                    onChange={(e) =>
+                      onNode({ ...node, zone: e.target.value as SkeletonZone })
+                    }
+                  >
+                    <option value="all">Cuerpo completo</option>
+                    <option value="hands">Manos y muñecas</option>
+                    <option value="arms">Brazos</option>
+                    <option value="spine">Columna y torso</option>
+                    <option value="head">Cabeza y cuello</option>
+                    <option value="legs">Piernas</option>
+                  </select>
+                </label>
+                <label className="field">
+                  Modo de enlace
+                  <select
+                    className="mode-select"
+                    value={node.attachMode}
+                    onChange={(e) =>
+                      onNode({ ...node, attachMode: e.target.value as SkeletonEmitMode })
+                    }
+                  >
+                    <option value="aura">Aura orbital</option>
+                    <option value="attach">Adherido al hueso</option>
+                    <option value="trail">Estela ascendente</option>
+                  </select>
+                </label>
+                {numInput("Dispersión", node.spread, (spread) => onNode({ ...node, spread }), {
+                  min: 0.01,
+                  max: 2,
+                  step: 0.02,
+                })}
+                {numInput("Partículas", node.count, (count) => {
+                  const n = Math.round(count);
+                  if (n >= 1 && n <= 10000) onNode({ ...node, count: n });
+                }, { min: 1, max: 10000, step: 64 })}
+              </>
+            )}
+
+            {node.kind === "particles.merge" && (
+              <p className="inspector-note">Combina las entradas A y B en una sola nube 3D.</p>
+            )}
+
             {node.kind === "simulation.particles" && (
               <>
                 <label className="field">
@@ -522,6 +663,8 @@ export function Inspector({
           <p className="inspector-note">Selecciona un nodo para editarlo.</p>
         </div>
       )}
+
+      <MocapPanel />
 
       <div className="inspector-section appearance">
         <h4>Aspecto de la escena</h4>

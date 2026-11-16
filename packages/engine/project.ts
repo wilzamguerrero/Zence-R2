@@ -5,6 +5,8 @@ type Point3 = { x: number; y: number; z: number };
 export type LfoWave = "sine" | "triangle" | "saw" | "square";
 export type MathOp = "add" | "mul" | "clamp" | "abs" | "sin";
 export type HydraBuffer = "o0" | "o1" | "o2" | "o3";
+export type SkeletonZone = "all" | "hands" | "arms" | "spine" | "head" | "legs";
+export type SkeletonEmitMode = "attach" | "aura" | "trail";
 
 export type Node =
   | { id: string; kind: "control.number"; initial: number; min: number; max: number }
@@ -21,6 +23,26 @@ export type Node =
   | { id: string; kind: "hydra.modulate"; amount: number }
   | { id: string; kind: "hydra.color"; r: number; g: number; b: number }
   | { id: string; kind: "hydra.out"; buffer: HydraBuffer }
+  | { id: string; kind: "mocap.body"; mirror: boolean; smoothing: number; scale: number }
+  | { id: string; kind: "mocap.hands"; smoothing: number; fingers: boolean; spreadGain: number }
+  | {
+      id: string;
+      kind: "scene.skeletonRig";
+      showBones: boolean;
+      showJoints: boolean;
+      retargetModel: boolean;
+      jointSize: number;
+    }
+  | {
+      id: string;
+      kind: "particles.skeleton";
+      seed: number;
+      count: number;
+      spread: number;
+      zone: SkeletonZone;
+      attachMode: SkeletonEmitMode;
+    }
+  | { id: string; kind: "particles.merge" }
   | { id: string; kind: "simulation.particles"; seed: number; count: number }
   | { id: string; kind: "scene.points" };
 
@@ -31,14 +53,31 @@ export type Edge = {
 
 export type Project = { schemaVersion: 1; nodes: Node[]; edges: Edge[]; scene: string };
 type Particles = { positions: Point3[]; velocities: Point3[] };
-export type PortType = "number" | "points" | "hydra";
+type SkeletonParticles = {
+  positions: Point3[];
+  offsets: Point3[];
+  segRatio: number[];
+  phases: number[];
+};
+export type PortType = "number" | "points" | "hydra" | "skeleton";
 type InputSpec = PortType | { type: PortType; optional?: boolean };
 type Ports = { inputs: Record<string, InputSpec>; outputs: Record<string, PortType> };
 type NodePlan = { node: Node; sources: Map<string, string> };
 
+export type BoneSegment3 = [Point3, Point3];
+export interface ExternalMocapInput {
+  activity?: number;
+  handOpen?: number;
+  handPinch?: number;
+  handsDist?: number;
+  segmentsByZone?: Partial<Record<SkeletonZone, BoneSegment3[]>>;
+}
+
 const lfoWaves: readonly LfoWave[] = ["sine", "triangle", "saw", "square"];
 const mathOps: readonly MathOp[] = ["add", "mul", "clamp", "abs", "sin"];
 const hydraBuffers: readonly HydraBuffer[] = ["o0", "o1", "o2", "o3"];
+const skeletonZones: readonly SkeletonZone[] = ["all", "hands", "arms", "spine", "head", "legs"];
+const skeletonEmitModes: readonly SkeletonEmitMode[] = ["attach", "aura", "trail"];
 
 const ports: Record<Node["kind"], Ports> = {
   "control.number": { inputs: {}, outputs: { value: "number" } },
@@ -62,6 +101,32 @@ const ports: Record<Node["kind"], Ports> = {
   },
   "hydra.color": { inputs: { tex: "hydra" }, outputs: { tex: "hydra" } },
   "hydra.out": { inputs: { tex: "hydra" }, outputs: {} },
+  "mocap.body": { inputs: {}, outputs: { skeleton: "skeleton", value: "number" } },
+  "mocap.hands": {
+    inputs: { skeleton: { type: "skeleton", optional: true } },
+    outputs: { skeleton: "skeleton", value: "number" },
+  },
+  "scene.skeletonRig": {
+    inputs: {
+      skeleton: { type: "skeleton", optional: true },
+      scale: { type: "number", optional: true },
+    },
+    outputs: { skeleton: "skeleton" },
+  },
+  "particles.skeleton": {
+    inputs: {
+      skeleton: { type: "skeleton", optional: true },
+      intensity: { type: "number", optional: true },
+    },
+    outputs: { points: "points" },
+  },
+  "particles.merge": {
+    inputs: {
+      a: "points",
+      b: { type: "points", optional: true },
+    },
+    outputs: { points: "points" },
+  },
   "simulation.particles": { inputs: { intensity: "number" }, outputs: { points: "points" } },
   "scene.points": { inputs: { points: "points" }, outputs: {} },
 };
@@ -189,6 +254,55 @@ function readNode(value: unknown): Node {
       }
       return { id, kind: node.kind, buffer: node.buffer as HydraBuffer };
     }
+    case "mocap.body": {
+      const smoothing = number(node.smoothing);
+      const scale = number(node.scale);
+      if (smoothing < 0 || smoothing > 0.99) throw new RangeError(`Invalid smoothing for ${id}`);
+      if (scale <= 0 || scale > 10) throw new RangeError(`Invalid scale for ${id}`);
+      return { id, kind: node.kind, mirror: typeof node.mirror === "boolean" ? node.mirror : true, smoothing, scale };
+    }
+    case "mocap.hands": {
+      const smoothing = number(node.smoothing);
+      const spreadGain = number(node.spreadGain);
+      if (smoothing < 0 || smoothing > 0.99) throw new RangeError(`Invalid smoothing for ${id}`);
+      return {
+        id,
+        kind: node.kind,
+        smoothing,
+        fingers: typeof node.fingers === "boolean" ? node.fingers : true,
+        spreadGain,
+      };
+    }
+    case "scene.skeletonRig":
+      return {
+        id,
+        kind: node.kind,
+        showBones: typeof node.showBones === "boolean" ? node.showBones : true,
+        showJoints: typeof node.showJoints === "boolean" ? node.showJoints : true,
+        retargetModel: typeof node.retargetModel === "boolean" ? node.retargetModel : true,
+        jointSize: number(node.jointSize),
+      };
+    case "particles.skeleton": {
+      const zone =
+        typeof node.zone === "string" && skeletonZones.includes(node.zone as SkeletonZone)
+          ? (node.zone as SkeletonZone)
+          : "all";
+      const attachMode =
+        typeof node.attachMode === "string" && skeletonEmitModes.includes(node.attachMode as SkeletonEmitMode)
+          ? (node.attachMode as SkeletonEmitMode)
+          : "aura";
+      return {
+        id,
+        kind: node.kind,
+        seed: integer(node.seed, 0, 0xffffffff),
+        count: integer(node.count, 1, 10_000),
+        spread: number(node.spread),
+        zone,
+        attachMode,
+      };
+    }
+    case "particles.merge":
+      return { id, kind: node.kind };
     case "simulation.particles":
       return { id, kind: node.kind, seed: integer(node.seed, 0, 0xffffffff), count: integer(node.count, 1, 10_000) };
     case "scene.points":
@@ -361,6 +475,86 @@ function seedParticles(seed: number, count: number): Particles {
   };
 }
 
+function seedSkeletonParticles(seed: number, count: number): SkeletonParticles {
+  let state = seed || 1;
+  function rand01(): number {
+    state = (Math.imul(1664525, state) + 1013904223) >>> 0;
+    return state / 0x1_0000_0000;
+  }
+
+  const positions = Array.from({ length: count }, () => ({ x: 0, y: 0, z: 0 }));
+  const offsets = Array.from({ length: count }, () => ({
+    x: rand01() * 2 - 1,
+    y: rand01() * 2 - 1,
+    z: rand01() * 2 - 1,
+  }));
+  const segRatio = Array.from({ length: count }, () => rand01());
+  const phases = Array.from({ length: count }, () => rand01() * Math.PI * 2);
+  return { positions, offsets, segRatio, phases };
+}
+
+function proceduralHumanoidSegments(time: number, zone: SkeletonZone): BoneSegment3[] {
+  const sway = Math.sin(time * 1.4) * 0.08;
+  const waveL = Math.sin(time * 2.1) * 0.14;
+  const waveR = Math.cos(time * 2.1) * 0.14;
+  const hips: Point3 = { x: sway, y: -0.1, z: 0 };
+  const chest: Point3 = { x: sway * 0.7, y: 0.48, z: 0 };
+  const neck: Point3 = { x: sway * 0.5, y: 0.66, z: 0 };
+  const head: Point3 = { x: sway * 0.4, y: 0.88, z: 0.03 };
+  const lElb: Point3 = { x: -0.44 + sway, y: 0.35 + waveL * 0.5, z: 0.08 };
+  const lHnd: Point3 = { x: -0.68 + sway, y: 0.52 + waveL, z: 0.16 };
+  const rElb: Point3 = { x: 0.44 + sway, y: 0.35 + waveR * 0.5, z: 0.08 };
+  const rHnd: Point3 = { x: 0.68 + sway, y: 0.52 + waveR, z: 0.16 };
+  const lKnee: Point3 = { x: -0.2 + sway * 0.5, y: -0.56, z: 0.04 };
+  const lFoot: Point3 = { x: -0.22 + sway * 0.4, y: -1.04, z: 0 };
+  const rKnee: Point3 = { x: 0.2 + sway * 0.5, y: -0.56, z: -0.04 };
+  const rFoot: Point3 = { x: 0.22 + sway * 0.4, y: -1.04, z: 0 };
+
+  if (zone === "hands") {
+    return [
+      [lElb, lHnd],
+      [rElb, rHnd],
+    ];
+  }
+  if (zone === "arms") {
+    return [
+      [chest, lElb],
+      [lElb, lHnd],
+      [chest, rElb],
+      [rElb, rHnd],
+    ];
+  }
+  if (zone === "head") return [[neck, head]];
+  if (zone === "spine") {
+    return [
+      [hips, chest],
+      [chest, neck],
+      [neck, head],
+    ];
+  }
+  if (zone === "legs") {
+    return [
+      [hips, lKnee],
+      [lKnee, lFoot],
+      [hips, rKnee],
+      [rKnee, rFoot],
+    ];
+  }
+  return [
+    [hips, chest],
+    [chest, neck],
+    [neck, head],
+    [chest, lElb],
+    [lElb, lHnd],
+    [chest, rElb],
+    [rElb, rHnd],
+    [hips, lKnee],
+    [lKnee, lFoot],
+    [hips, rKnee],
+    [rKnee, rFoot],
+  ];
+}
+
 function evalLfo(node: Extract<Node, { kind: "signal.lfo" }>, time: number): number {
   const phase = ((time * node.rate) % 1 + 1) % 1;
   let wave = 0;
@@ -410,7 +604,10 @@ export class ProjectRuntime {
   private readonly numbers = new Map<string, number>();
   private readonly smoothState = new Map<string, number>();
   private readonly particles = new Map<string, Particles>();
+  private readonly skeletonParticles = new Map<string, SkeletonParticles>();
+  private readonly pointOutputs = new Map<string, Point3[]>();
   private readonly scenes = new Map<string, Point3[]>();
+  private externalMocap: ExternalMocapInput = {};
   private stepCount = 0;
 
   constructor(data: unknown) {
@@ -422,13 +619,88 @@ export class ProjectRuntime {
         this.controls.set(node.id, { min: node.min, max: node.max, value: node.initial });
       }
       if (node.kind === "simulation.particles") {
-        this.particles.set(node.id, seedParticles(node.seed, node.count));
+        const sim = seedParticles(node.seed, node.count);
+        this.particles.set(node.id, sim);
+        this.pointOutputs.set(node.id, sim.positions);
+      }
+      if (node.kind === "particles.skeleton") {
+        const skel = seedSkeletonParticles(node.seed, node.count);
+        this.skeletonParticles.set(node.id, skel);
+        this.pointOutputs.set(node.id, skel.positions);
+      }
+      if (node.kind === "particles.merge") {
+        const a = this.pointOutputs.get(sources.get("a")!) ?? [];
+        const bId = sources.get("b");
+        const b = bId ? this.pointOutputs.get(bId) ?? [] : [];
+        this.pointOutputs.set(node.id, [...a, ...b]);
       }
       if (node.kind === "scene.points") {
-        this.scenes.set(node.id, this.particles.get(sources.get("points")!)!.positions);
+        this.scenes.set(node.id, this.pointOutputs.get(sources.get("points")!)!);
       }
     }
     this.evaluateSignals(true);
+    this.updateSkeletonParticles(0);
+  }
+
+  setExternalMocap(input: ExternalMocapInput): void {
+    this.externalMocap = input;
+  }
+
+  getSkeletonDisplay(): {
+    hasRigNode: boolean;
+    hasBodyNode: boolean;
+    hasHandsNode: boolean;
+    showBones: boolean;
+    showJoints: boolean;
+    retargetModel: boolean;
+    jointSize: number;
+    bodyMirror: boolean;
+    bodySmoothing: number;
+    bodyScale: number;
+    handFingers: boolean;
+  } {
+    let hasRigNode = false;
+    let hasBodyNode = false;
+    let hasHandsNode = false;
+    let showBones = true;
+    let showJoints = true;
+    let retargetModel = true;
+    let jointSize = 1;
+    let bodyMirror = true;
+    let bodySmoothing = 0.35;
+    let bodyScale = 1;
+    let handFingers = true;
+
+    for (const { node } of this.plan) {
+      if (node.kind === "mocap.body") {
+        hasBodyNode = true;
+        bodyMirror = node.mirror;
+        bodySmoothing = node.smoothing;
+        bodyScale = node.scale;
+      } else if (node.kind === "mocap.hands") {
+        hasHandsNode = true;
+        handFingers = node.fingers;
+      } else if (node.kind === "scene.skeletonRig") {
+        hasRigNode = true;
+        showBones = node.showBones;
+        showJoints = node.showJoints;
+        retargetModel = node.retargetModel;
+        jointSize = node.jointSize;
+      }
+    }
+    return {
+      hasRigNode,
+      hasBodyNode,
+      hasHandsNode,
+      showBones,
+      showJoints,
+      retargetModel,
+      jointSize,
+      bodyMirror,
+      bodySmoothing,
+      bodyScale,
+      handFingers,
+    };
   }
 
   private evaluateSignals(initial = false): void {
@@ -440,6 +712,10 @@ export class ProjectRuntime {
         this.numbers.set(node.id, evalLfo(node, time));
       } else if (node.kind === "signal.timer") {
         this.numbers.set(node.id, time * node.speed);
+      } else if (node.kind === "mocap.body") {
+        this.numbers.set(node.id, this.externalMocap.activity ?? 0);
+      } else if (node.kind === "mocap.hands") {
+        this.numbers.set(node.id, (this.externalMocap.handOpen ?? 0) * node.spreadGain);
       } else if (node.kind === "signal.smooth") {
         const input = this.numbers.get(sources.get("in")!) ?? 0;
         const prev = this.smoothState.get(node.id);
@@ -452,6 +728,50 @@ export class ProjectRuntime {
       } else if (node.kind === "signal.math") {
         const input = this.numbers.get(sources.get("in")!) ?? 0;
         this.numbers.set(node.id, evalMath(node, input));
+      }
+    }
+  }
+
+  private updateSkeletonParticles(time: number): void {
+    for (const { node, sources } of this.plan) {
+      if (node.kind !== "particles.skeleton") continue;
+      const sp = this.skeletonParticles.get(node.id)!;
+      const extSegs = this.externalMocap.segmentsByZone?.[node.zone] ?? this.externalMocap.segmentsByZone?.all;
+      const segs = extSegs && extSegs.length > 0 ? extSegs : proceduralHumanoidSegments(time, node.zone);
+      const intensityId = sources.get("intensity");
+      const intensity = intensityId ? (this.numbers.get(intensityId) ?? 1) : 1;
+      const amp = Math.max(0.05, Math.abs(intensity));
+      const { positions, offsets, segRatio, phases } = sp;
+      const segCount = segs.length;
+
+      for (let i = 0; i < positions.length; i += 1) {
+        const [a, b] = segs[i % segCount];
+        const t = segRatio[i];
+        const bx = a.x + (b.x - a.x) * t;
+        const by = a.y + (b.y - a.y) * t;
+        const bz = a.z + (b.z - a.z) * t;
+        const off = offsets[i];
+        const ph = phases[i];
+        const spread = node.spread * amp;
+
+        if (node.attachMode === "attach") {
+          const jitter = 0.25 + 0.15 * Math.sin(time * 3 + ph);
+          positions[i].x = bx + off.x * spread * jitter;
+          positions[i].y = by + off.y * spread * jitter;
+          positions[i].z = bz + off.z * spread * jitter;
+        } else if (node.attachMode === "trail") {
+          const cycle = ((time * 0.75 * amp + ph / (Math.PI * 2)) % 1 + 1) % 1;
+          positions[i].x = bx + off.x * spread * (0.2 + cycle * 1.15);
+          positions[i].y = by + off.y * spread * (0.2 + cycle) + cycle * 0.45 * amp;
+          positions[i].z = bz + off.z * spread * (0.2 + cycle * 1.15);
+        } else {
+          // "aura"
+          const ang = time * (1.2 + (i % 5) * 0.18) + ph;
+          const r = spread * (0.35 + 0.65 * Math.abs(off.x));
+          positions[i].x = bx + Math.cos(ang) * r;
+          positions[i].y = by + off.y * spread * 0.55 + Math.sin(ang * 0.7) * r * 0.45;
+          positions[i].z = bz + Math.sin(ang) * r;
+        }
       }
     }
   }
@@ -474,6 +794,7 @@ export class ProjectRuntime {
 
   tick(): void {
     this.evaluateSignals();
+    const time = this.stepCount * fixedStepSeconds;
     for (const { node, sources } of this.plan) {
       if (node.kind !== "simulation.particles") continue;
       const { positions, velocities } = this.particles.get(node.id)!;
@@ -487,6 +808,7 @@ export class ProjectRuntime {
         position.z += velocity.z * distance;
       }
     }
+    this.updateSkeletonParticles(time);
     this.stepCount += 1;
   }
 

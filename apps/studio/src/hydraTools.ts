@@ -18,6 +18,14 @@ const hydraCompletions: Completion[] = [
   { label: "high()", type: "function", detail: "Zence · Agudos FFT (0..1)", apply: "high()" },
   { label: "beat()", type: "function", detail: "Zence · Fase de pulso BPM (0..1)", apply: "beat()" },
   { label: "bpm()", type: "function", detail: "Zence · Tempo actual en BPM", apply: "bpm()" },
+  { label: "bodyActivity()", type: "function", detail: "Mocap · Energía de movimiento corporal (0..1)", apply: "bodyActivity()" },
+  { label: 'hand("left", "open")', type: "function", detail: "Mocap · Apertura/pinza de mano (left/right)", apply: 'hand("left", "open")' },
+  { label: "leftPinch()", type: "function", detail: "Mocap · Pinza pulgar-índice izquierda (0..1)", apply: "leftPinch()" },
+  { label: "rightPinch()", type: "function", detail: "Mocap · Pinza pulgar-índice derecha (0..1)", apply: "rightPinch()" },
+  { label: "leftOpen()", type: "function", detail: "Mocap · Apertura mano izquierda (0..1)", apply: "leftOpen()" },
+  { label: "rightOpen()", type: "function", detail: "Mocap · Apertura mano derecha (0..1)", apply: "rightOpen()" },
+  { label: "handsDist()", type: "function", detail: "Mocap · Distancia 3D entre ambas manos", apply: "handsDist()" },
+  { label: "poseY()", type: "function", detail: "Mocap · Altura Y de cabeza/postura", apply: "poseY()" },
 
   // Hydra Sources
   { label: "osc", type: "function", detail: "Fuente · Oscilador (freq, sync, offset)", apply: "osc(10, 0.1, 0.5)" },

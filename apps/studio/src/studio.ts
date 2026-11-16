@@ -56,7 +56,7 @@ export type NodeMetaSpec = {
   label: string;
   name: string;
   namespace: string;
-  category: "Control" | "Anim" | "Math" | "Hydra" | "Scene";
+  category: "Control" | "Anim" | "Math" | "Hydra" | "Mocap" | "Scene";
   description: string;
   inputs: Array<{ key: string; label: string; type: PortType; optional?: boolean }>;
   outputs: Array<{ key: string; label: string; type: PortType }>;
@@ -193,6 +193,66 @@ export const nodeTypes: Record<Node["kind"], NodeMetaSpec> = {
     inputs: [{ key: "tex", label: "Textura", type: "hydra" }],
     outputs: [],
   },
+  "mocap.body": {
+    label: "Mocap Cuerpo",
+    name: "BodyMocap",
+    namespace: "Ops.Mocap.Body",
+    category: "Mocap",
+    description: "Seguimiento de 33 puntos corporales desde cámara, video o imagen",
+    inputs: [],
+    outputs: [
+      { key: "skeleton", label: "Esqueleto", type: "skeleton" },
+      { key: "value", label: "Actividad", type: "number" },
+    ],
+  },
+  "mocap.hands": {
+    label: "Mocap Manos",
+    name: "HandsMocap",
+    namespace: "Ops.Mocap.Hands",
+    category: "Mocap",
+    description: "Seguimiento dual de manos (21 puntos/mano) y gestos de pinza/apertura",
+    inputs: [{ key: "skeleton", label: "Esqueleto", type: "skeleton", optional: true }],
+    outputs: [
+      { key: "skeleton", label: "Esqueleto", type: "skeleton" },
+      { key: "value", label: "Apertura", type: "number" },
+    ],
+  },
+  "scene.skeletonRig": {
+    label: "Esqueleto 3D",
+    name: "SkeletonRig",
+    namespace: "Ops.Mocap.SkeletonRig",
+    category: "Mocap",
+    description: "Visualiza huesos/articulaciones 3D y retargetea modelos GLB/FBX",
+    inputs: [
+      { key: "skeleton", label: "Esqueleto", type: "skeleton", optional: true },
+      { key: "scale", label: "Escala", type: "number", optional: true },
+    ],
+    outputs: [{ key: "skeleton", label: "Esqueleto", type: "skeleton" }],
+  },
+  "particles.skeleton": {
+    label: "Partículas Huesos",
+    name: "SkeletonParticles",
+    namespace: "Ops.Sim.SkeletonParticles",
+    category: "Mocap",
+    description: "Emite y enlaza partículas directamente a los huesos y articulaciones",
+    inputs: [
+      { key: "skeleton", label: "Esqueleto", type: "skeleton", optional: true },
+      { key: "intensity", label: "Intensidad", type: "number", optional: true },
+    ],
+    outputs: [{ key: "points", label: "Puntos", type: "points" }],
+  },
+  "particles.merge": {
+    label: "Combinar Puntos",
+    name: "MergePoints",
+    namespace: "Ops.Sim.MergePoints",
+    category: "Scene",
+    description: "Combina dos nubes de partículas (ej. ambiente + esqueleto)",
+    inputs: [
+      { key: "a", label: "Puntos A", type: "points" },
+      { key: "b", label: "Puntos B", type: "points", optional: true },
+    ],
+    outputs: [{ key: "points", label: "Puntos", type: "points" }],
+  },
   "simulation.particles": {
     label: "Emisor de partículas",
     name: "Particles",
@@ -221,6 +281,10 @@ export const portLabels: Record<string, string> = {
   tex: "Textura",
   modTex: "Mod Tex",
   mod: "Mod",
+  skeleton: "Esqueleto",
+  scale: "Escala",
+  a: "Puntos A",
+  b: "Puntos B",
 };
 
 export const initialDocument: StudioDocument = {
@@ -304,6 +368,11 @@ export function makeNode(kind: Node["kind"], nodes: Node[]): Node {
     "hydra.modulate": "modulate",
     "hydra.color": "color",
     "hydra.out": "out",
+    "mocap.body": "bodyMocap",
+    "mocap.hands": "handsMocap",
+    "scene.skeletonRig": "skeletonRig",
+    "particles.skeleton": "boneParticles",
+    "particles.merge": "merge",
     "simulation.particles": "emitter",
     "scene.points": "scene",
   };
@@ -326,6 +395,11 @@ export function makeNode(kind: Node["kind"], nodes: Node[]): Node {
     case "hydra.modulate": return { id, kind, amount: 0.12 };
     case "hydra.color": return { id, kind, r: 0.68, g: 0.4, b: 0.78 };
     case "hydra.out": return { id, kind, buffer: "o0" };
+    case "mocap.body": return { id, kind, mirror: true, smoothing: 0.35, scale: 1 };
+    case "mocap.hands": return { id, kind, smoothing: 0.4, fingers: true, spreadGain: 1 };
+    case "scene.skeletonRig": return { id, kind, showBones: true, showJoints: true, retargetModel: true, jointSize: 1 };
+    case "particles.skeleton": return { id, kind, seed: 77, count: 512, spread: 0.16, zone: "all", attachMode: "aura" };
+    case "particles.merge": return { id, kind };
     case "simulation.particles": return { id, kind, seed: 42, count: 768 };
     case "scene.points": return { id, kind };
   }

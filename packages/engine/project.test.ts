@@ -149,3 +149,45 @@ test("cables-style timer, mapRange, smooth and hydra nodes compile deterministic
   assert.match(compiled, /\.color\(0\.68, 0\.4, 0\.68\)/);
   assert.match(compiled, /\.out\(o0\)/);
 });
+
+test("mocap body, hands, skeleton rig, bone particles and merge run deterministically", () => {
+  const patch = readProject({
+    schemaVersion: 1,
+    scene: "stage",
+    nodes: [
+      { id: "body1", kind: "mocap.body", mirror: true, smoothing: 0.35, scale: 1 },
+      { id: "hands1", kind: "mocap.hands", smoothing: 0.4, fingers: true, spreadGain: 1.2 },
+      { id: "rig1", kind: "scene.skeletonRig", showBones: true, showJoints: true, retargetModel: true, jointSize: 1.2 },
+      { id: "skelPts", kind: "particles.skeleton", seed: 7, count: 64, spread: 0.15, zone: "all", attachMode: "aura" },
+      { id: "ambient", kind: "simulation.particles", seed: 11, count: 32 },
+      { id: "intensity", kind: "control.number", initial: 1, min: 0, max: 4 },
+      { id: "merged", kind: "particles.merge" },
+      { id: "stage", kind: "scene.points" },
+    ],
+    edges: [
+      { from: { node: "body1", port: "skeleton" }, to: { node: "hands1", port: "skeleton" } },
+      { from: { node: "hands1", port: "skeleton" }, to: { node: "rig1", port: "skeleton" } },
+      { from: { node: "rig1", port: "skeleton" }, to: { node: "skelPts", port: "skeleton" } },
+      { from: { node: "intensity", port: "value" }, to: { node: "ambient", port: "intensity" } },
+      { from: { node: "skelPts", port: "points" }, to: { node: "merged", port: "a" } },
+      { from: { node: "ambient", port: "points" }, to: { node: "merged", port: "b" } },
+      { from: { node: "merged", port: "points" }, to: { node: "stage", port: "points" } },
+    ],
+  });
+
+  const runtime = new ProjectRuntime(patch);
+  assert.equal(runtime.pointCount, 96);
+  runtime.setExternalMocap({
+    activity: 0.75,
+    handOpen: 0.5,
+    segmentsByZone: {
+      all: [[{ x: 1, y: 2, z: 0 }, { x: 1, y: 3, z: 0 }]],
+    },
+  });
+  for (let i = 0; i < 10; i += 1) runtime.tick();
+  assert.equal(runtime.getNumber("body1"), 0.75);
+  assert.ok(Math.abs(runtime.getNumber("hands1")! - 0.6) < 1e-6);
+  const snap = runtime.snapshot();
+  assert.equal(snap.length, 96);
+  assert.ok(snap[0].y >= 1.5 && snap[0].y <= 3.5);
+});

@@ -7,6 +7,7 @@ import {
   Grid2X2,
   MoveUpRight,
   Orbit,
+  PersonStanding,
   RotateCcw,
   Workflow,
 } from "lucide-react";
@@ -25,9 +26,11 @@ import {
   EdgesGeometry,
   GridHelper,
   Group,
+  InstancedMesh,
   Line,
   LineBasicMaterial,
   LineSegments,
+  Matrix4,
   Mesh,
   MeshBasicMaterial,
   PerspectiveCamera,
@@ -35,6 +38,7 @@ import {
   Points,
   Scene,
   ShaderMaterial,
+  SphereGeometry,
   SRGBColorSpace,
   Vector3,
   WebGLRenderer,
@@ -44,10 +48,14 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { ReactNode, RefObject } from "react";
-import type { Node, Project } from "../../../../packages/engine/project.ts";
+import type { BoneSegment3, Node, Project, SkeletonZone } from "../../../../packages/engine/project.ts";
 import type { Playback } from "../playback.ts";
 import { defaultPosition3D, nodeTypes } from "../studio.ts";
 import type { NodeMeta, Position3D, ViewSettings } from "../studio.ts";
+import { HAND_SEGMENTS, JOINT_ZONES, SKELETON_SEGMENTS } from "../mocap/boneMap.ts";
+import { convertFbxToGlb } from "../mocap/fbxToGlb.ts";
+import { sharedMocap } from "../mocap/mocapRuntime.ts";
+import { extractRigFromObject, extractRigJointPositions, type RigCharacter } from "../mocap/rigAdapter.ts";
 
 const vertexShader = `
   uniform float pointSize;
@@ -165,6 +173,12 @@ export function Viewport({
   const [autoRotate, setAutoRotate] = useState(false);
   const [nodes3d, setNodes3d] = useState(false);
   const [edit3d, setEdit3d] = useState(false);
+  const [mocapActive, setMocapActive] = useState(sharedMocap.state.active);
+
+  useEffect(
+    () => sharedMocap.subscribe(() => setMocapActive(sharedMocap.state.active)),
+    [],
+  );
 
   const modelInput = useRef<HTMLInputElement>(null);
   const loadModel = useRef<(file: File) => void>(() => {});
@@ -179,6 +193,7 @@ export function Viewport({
     onChangeNode,
     onMoveNode3D,
     mode,
+    onMode,
   });
   latestProps.current = {
     project,
@@ -188,6 +203,7 @@ export function Viewport({
     onChangeNode,
     onMoveNode3D,
     mode,
+    onMode,
   };
 
   const visualSettings = useRef(view);
@@ -298,6 +314,46 @@ export function Viewport({
 
     const models = new Group();
     scene.add(models);
+    let activeRig: RigCharacter | null = null;
+
+    // Esqueleto 3D interactivo (funciona con modelo cargado o sin modelo)
+    const skeletonGroup = new Group();
+    scene.add(skeletonGroup);
+    const bodySegCount = SKELETON_SEGMENTS.length;
+    const bodyLineAttr = new BufferAttribute(new Float32Array(bodySegCount * 2 * 3), 3);
+    bodyLineAttr.setUsage(DynamicDrawUsage);
+    const bodyLineGeo = new BufferGeometry();
+    bodyLineGeo.setAttribute("position", bodyLineAttr);
+    const bodyLines = new LineSegments(
+      bodyLineGeo,
+      new LineBasicMaterial({ color: 0x68d8d6, transparent: true, opacity: 0.92 }),
+    );
+    bodyLines.frustumCulled = false;
+    skeletonGroup.add(bodyLines);
+
+    const handSegCount = HAND_SEGMENTS.length * 2;
+    const handLineAttr = new BufferAttribute(new Float32Array(handSegCount * 2 * 3), 3);
+    handLineAttr.setUsage(DynamicDrawUsage);
+    const handLineGeo = new BufferGeometry();
+    handLineGeo.setAttribute("position", handLineAttr);
+    const handLines = new LineSegments(
+      handLineGeo,
+      new LineBasicMaterial({ color: 0xcf8acc, transparent: true, opacity: 0.95 }),
+    );
+    handLines.frustumCulled = false;
+    skeletonGroup.add(handLines);
+
+    const jointSpheres = new InstancedMesh(
+      new SphereGeometry(0.036, 10, 8),
+      new MeshBasicMaterial({ color: 0xf5f3f4 }),
+      72,
+    );
+    jointSpheres.count = 0;
+    jointSpheres.frustumCulled = false;
+    skeletonGroup.add(jointSpheres);
+    const jointDummyMat = new Matrix4();
+    const jointDummyPos = new Vector3();
+    const jointDummyScale = new Vector3(1, 1, 1);
 
     const cssGroup = new Group();
     const cables3dGroup = new Group();
@@ -509,10 +565,16 @@ export function Viewport({
     loadModel.current = async (file) => {
       const current = ++request;
       try {
-        const model = file.name.toLowerCase().endsWith(".obj")
-          ? new OBJLoader().parse(await file.text())
-          : (await new GLTFLoader().parseAsync(await file.arrayBuffer(), ""))
-              .scene;
+        const lower = file.name.toLowerCase();
+        let model: Group;
+        if (lower.endsWith(".obj")) {
+          model = new OBJLoader().parse(await file.text());
+        } else if (lower.endsWith(".fbx")) {
+          const converted = await convertFbxToGlb(file);
+          model = (await new GLTFLoader().parseAsync(await converted.blob.arrayBuffer(), "")).scene;
+        } else {
+          model = (await new GLTFLoader().parseAsync(await file.arrayBuffer(), "")).scene;
+        }
         if (!alive || current !== request) {
           disposeModels(model);
           return;
@@ -525,15 +587,26 @@ export function Viewport({
         containerGroup.add(model);
         containerGroup.scale.setScalar(4 / Math.max(size.x, size.y, size.z, 0.01));
         disposeModels(models);
+        activeRig = null;
         models.add(containerGroup);
+        containerGroup.updateMatrixWorld(true);
+        activeRig = extractRigFromObject(containerGroup);
         setFailure("");
       } catch (error) {
         setFailure(
-          "No se pudo importar el modelo. Usa un GLB autocontenido u OBJ. " +
+          "No se pudo importar el modelo. Usa FBX, GLB autocontenido u OBJ. " +
             String(error),
         );
       }
     };
+    const onExternalLoadModel = (event: Event) => {
+      const detail = (event as CustomEvent<File>).detail;
+      if (detail) {
+        void loadModel.current(detail);
+        latestProps.current.onMode?.("3d");
+      }
+    };
+    window.addEventListener("zence:load-model", onExternalLoadModel);
 
     let geometry = new BufferGeometry();
     let attribute: BufferAttribute | undefined;
@@ -586,6 +659,137 @@ export function Viewport({
           (el as HTMLElement).style.height = `${pct}%`;
         });
       }
+      const skelCfg = playback.runtime.getSkeletonDisplay();
+      sharedMocap.step(skelCfg.retargetModel ? activeRig : null);
+
+      const liveJoints: Record<string, [number, number, number]> = {};
+      if (sharedMocap.state.active && sharedMocap.state.poseDetected) {
+        const s = skelCfg.bodyScale;
+        for (const [k, pos] of Object.entries(sharedMocap.state.joints)) {
+          liveJoints[k] = [pos[0] * s, pos[1] * s, pos[2] * s];
+        }
+      } else if (activeRig?.loaded) {
+        extractRigJointPositions(activeRig, liveJoints);
+      }
+
+      const handPtsAll = [
+        ...sharedMocap.state.leftHand.points3D,
+        ...sharedMocap.state.rightHand.points3D,
+      ];
+      const hasBody = Object.keys(liveJoints).length > 0;
+      const hasHands = handPtsAll.length > 0;
+      skeletonGroup.visible = Boolean(
+        (hasBody || hasHands) && (skelCfg.showBones || skelCfg.showJoints),
+      );
+
+      let jointInstanceCount = 0;
+      let bodyLineCount = 0;
+      const bodyArr = bodyLineAttr.array as Float32Array;
+      const handArr = handLineAttr.array as Float32Array;
+      const segmentsByZone: Partial<Record<SkeletonZone, BoneSegment3[]>> = {};
+
+      if (hasBody || hasHands) {
+        const allSegs: BoneSegment3[] = [];
+        for (const [aKey, bKey] of SKELETON_SEGMENTS) {
+          const a = liveJoints[aKey];
+          const b = liveJoints[bKey];
+          if (!a || !b) continue;
+          allSegs.push([
+            { x: a[0], y: a[1], z: a[2] },
+            { x: b[0], y: b[1], z: b[2] },
+          ]);
+          const o = bodyLineCount * 6;
+          bodyArr[o] = a[0];
+          bodyArr[o + 1] = a[1];
+          bodyArr[o + 2] = a[2];
+          bodyArr[o + 3] = b[0];
+          bodyArr[o + 4] = b[1];
+          bodyArr[o + 5] = b[2];
+          bodyLineCount++;
+        }
+
+        let handLineCount = 0;
+        const handSegs: BoneSegment3[] = [];
+        for (const hand of [sharedMocap.state.leftHand, sharedMocap.state.rightHand]) {
+          if (!hand.detected || hand.points3D.length < 21) continue;
+          for (const [ia, ib] of HAND_SEGMENTS) {
+            const a = hand.points3D[ia];
+            const b = hand.points3D[ib];
+            if (!a || !b) continue;
+            const seg: BoneSegment3 = [
+              { x: a[0], y: a[1], z: a[2] },
+              { x: b[0], y: b[1], z: b[2] },
+            ];
+            handSegs.push(seg);
+            allSegs.push(seg);
+            if (handLineCount < handSegCount) {
+              const o = handLineCount * 6;
+              handArr[o] = a[0];
+              handArr[o + 1] = a[1];
+              handArr[o + 2] = a[2];
+              handArr[o + 3] = b[0];
+              handArr[o + 4] = b[1];
+              handArr[o + 5] = b[2];
+              handLineCount++;
+            }
+          }
+        }
+
+        bodyLines.visible = skelCfg.showBones && bodyLineCount > 0;
+        bodyLineGeo.setDrawRange(0, bodyLineCount * 2);
+        bodyLineAttr.needsUpdate = true;
+
+        handLines.visible = skelCfg.showBones && handLineCount > 0;
+        handLineGeo.setDrawRange(0, handLineCount * 2);
+        handLineAttr.needsUpdate = true;
+
+        jointSpheres.visible = skelCfg.showJoints;
+        if (skelCfg.showJoints) {
+          jointDummyScale.setScalar(skelCfg.jointSize);
+          for (const pos of Object.values(liveJoints)) {
+            if (jointInstanceCount >= 72) break;
+            jointDummyPos.set(pos[0], pos[1], pos[2]);
+            jointDummyMat.compose(jointDummyPos, screen.quaternion, jointDummyScale);
+            jointSpheres.setMatrixAt(jointInstanceCount++, jointDummyMat);
+          }
+          jointDummyScale.setScalar(skelCfg.jointSize * 0.45);
+          for (const pos of handPtsAll) {
+            if (jointInstanceCount >= 72) break;
+            jointDummyPos.set(pos[0], pos[1], pos[2]);
+            jointDummyMat.compose(jointDummyPos, screen.quaternion, jointDummyScale);
+            jointSpheres.setMatrixAt(jointInstanceCount++, jointDummyMat);
+          }
+          jointSpheres.count = jointInstanceCount;
+          jointSpheres.instanceMatrix.needsUpdate = true;
+        }
+
+        segmentsByZone.all = allSegs;
+        segmentsByZone.hands = handSegs.length
+          ? handSegs
+          : allSegs.filter((_, idx) => idx === 6 || idx === 9);
+        for (const z of ["arms", "spine", "head", "legs"] as const) {
+          const allowed = new Set(JOINT_ZONES[z]);
+          const zSegs: BoneSegment3[] = [];
+          for (const [aKey, bKey] of SKELETON_SEGMENTS) {
+            if (!allowed.has(aKey) || !allowed.has(bKey)) continue;
+            const a = liveJoints[aKey];
+            const b = liveJoints[bKey];
+            if (a && b) zSegs.push([{ x: a[0], y: a[1], z: a[2] }, { x: b[0], y: b[1], z: b[2] }]);
+          }
+          if (zSegs.length) segmentsByZone[z] = zSegs;
+        }
+
+        playback.runtime.setExternalMocap({
+          activity: sharedMocap.state.activity,
+          handOpen: Math.max(sharedMocap.state.leftHand.open, sharedMocap.state.rightHand.open),
+          handPinch: Math.max(sharedMocap.state.leftHand.pinch, sharedMocap.state.rightHand.pinch),
+          handsDist: sharedMocap.state.handsDist,
+          segmentsByZone,
+        });
+      } else {
+        playback.runtime.setExternalMocap({});
+      }
+
       playback.advance(elapsed);
       const { runtime, tick } = playback;
       if (attribute?.count !== runtime.pointCount) {
@@ -655,7 +859,14 @@ export function Viewport({
     setReady(true);
     return () => {
       alive = false;
+      window.removeEventListener("zence:load-model", onExternalLoadModel);
       disposeModels(models);
+      bodyLineGeo.dispose();
+      bodyLines.material.dispose();
+      handLineGeo.dispose();
+      handLines.material.dispose();
+      jointSpheres.geometry.dispose();
+      jointSpheres.material.dispose();
       cancelAnimationFrame(animation);
       observer.disconnect();
       controls.dispose();
@@ -745,7 +956,7 @@ export function Viewport({
         <div className="view-tools">
           <input
             type="file"
-            accept=".glb,.obj"
+            accept=".glb,.gltf,.fbx,.obj"
             hidden
             ref={modelInput}
             onChange={(e) => {
@@ -757,6 +968,23 @@ export function Viewport({
               e.target.value = "";
             }}
           />
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Seguimiento corporal y manos (Cámara)"
+            aria-pressed={mocapActive}
+            title="Activar/detener seguimiento de cuerpo y manos por cámara"
+            onClick={() => {
+              if (sharedMocap.state.active) {
+                sharedMocap.stop();
+              } else {
+                void sharedMocap.startWebcam();
+                onMode?.("3d");
+              }
+            }}
+          >
+            <PersonStanding size={14} />
+          </button>
           <button
             type="button"
             className="icon-button"
@@ -796,8 +1024,8 @@ export function Viewport({
           <button
             type="button"
             className="icon-button"
-            title="Importar GLB / OBJ"
-            aria-label="Importar modelo 3D"
+            title="Importar FBX / GLB / OBJ"
+            aria-label="Importar modelo 3D (FBX, GLB, OBJ)"
             onClick={() => modelInput.current?.click()}
           >
             <Box size={14} />

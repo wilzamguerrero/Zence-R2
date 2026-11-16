@@ -5,16 +5,20 @@ import {
   CircleDot,
   Crosshair,
   Disc,
+  Hand,
+  Layers,
   LayoutGrid,
   Maximize,
   Minus,
   Palette,
+  PersonStanding,
   Plus,
   Radio,
   RotateCw,
   Search,
   Sparkles,
   Timer,
+  User,
   Waves,
   Workflow,
 } from "lucide-react";
@@ -46,6 +50,11 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "hydra.modulate": Activity,
   "hydra.color": Palette,
   "hydra.out": Box,
+  "mocap.body": PersonStanding,
+  "mocap.hands": Hand,
+  "scene.skeletonRig": User,
+  "particles.skeleton": Sparkles,
+  "particles.merge": Layers,
   "simulation.particles": CircleDot,
   "scene.points": Box,
 };
@@ -55,6 +64,7 @@ const categoryColors: Record<string, string> = {
   Anim: "#58c4dc",
   Math: "#6ed491",
   Hydra: "#f0b35a",
+  Mocap: "#68d8d6",
   Scene: "#cfb7cf",
 };
 
@@ -62,6 +72,7 @@ const sockets: Record<PortType, ClassicPreset.Socket> = {
   number: new ClassicPreset.Socket("number"),
   points: new ClassicPreset.Socket("points"),
   hydra: new ClassicPreset.Socket("hydra"),
+  skeleton: new ClassicPreset.Socket("skeleton"),
 };
 
 class ZenceReteNode extends ClassicPreset.Node {
@@ -134,6 +145,16 @@ function nodeSummary(node: Node): string {
       return `rgb(${node.r}, ${node.g}, ${node.b})`;
     case "hydra.out":
       return `buffer ${node.buffer}`;
+    case "mocap.body":
+      return node.mirror ? `espejo · ${node.scale}×` : `directo · ${node.scale}×`;
+    case "mocap.hands":
+      return node.fingers ? "dedos activos" : "solo muñeca";
+    case "scene.skeletonRig":
+      return `${node.showBones ? "huesos" : "nodos"}${node.retargetModel ? " + rig" : ""}`;
+    case "particles.skeleton":
+      return `${node.count} pts · ${node.zone}`;
+    case "particles.merge":
+      return "A + B";
     case "simulation.particles":
       return `${node.count} pts`;
     case "scene.points":
@@ -339,7 +360,7 @@ export function Graph({
   const [categoryFilter, setCategoryFilter] = useState<string>("Todas");
   const [paletteIndex, setPaletteIndex] = useState(0);
 
-  const categories = ["Todas", "Control", "Anim", "Math", "Hydra", "Scene"];
+  const categories = ["Todas", "Control", "Anim", "Math", "Hydra", "Mocap", "Scene"];
   const kinds = (Object.keys(nodeTypes) as Node["kind"][]).filter((kind) => {
     const meta = nodeTypes[kind];
     if (categoryFilter !== "Todas" && meta.category !== categoryFilter) return false;
