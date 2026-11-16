@@ -25,22 +25,14 @@
         pointer-events: none;
       }
 
-      /* Marco brutalista de ondas op-art para Zence R2 */
+      /* Marco brutalista cuadrado de ondas op-art para Zence R2 */
       .splash-stage {
         position: relative;
-        width: 176px;
-        height: 196px;
+        width: 184px;
+        height: 184px;
         border: 1.5px solid #3c3c3c;
         background: #202020;
         overflow: hidden;
-      }
-
-      .splash-stage::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        border: 1px solid rgba(174, 104, 173, 0.32);
-        pointer-events: none;
       }
 
       .splash-brutal {
@@ -127,7 +119,7 @@
 
     <div id="splash" role="status" aria-label="Cargando Zence R2">
       <div class="splash-stage" aria-hidden="true">
-        <canvas class="splash-brutal" id="splash-canvas" width="176" height="196"></canvas>
+        <canvas class="splash-brutal" id="splash-canvas" width="184" height="184"></canvas>
       </div>
 
       <div class="splash-brand">
@@ -170,11 +162,11 @@
                 Math.cos(ny * 2.7 - Math.sin(nx * 1.9 + t * 0.75)) * 0.54;
               const field = r1 * 4.4 - r2 * 1.95 + warp - t * 0.85;
               const stripe = Math.sin(field * Math.PI);
-              // Borde nítido (anti-aliased estrecho) entre #202020 (32) y #f5f3f4 (245,243,244)
+              // Borde nítido (anti-aliased estrecho) entre #202020 (32) y #ae68ad (174,104,173)
               const k = stripe > 0.06 ? 1 : stripe < -0.06 ? 0 : (stripe + 0.06) / 0.12;
-              data[p] = 32 + (245 - 32) * k;
-              data[p + 1] = 32 + (243 - 32) * k;
-              data[p + 2] = 32 + (244 - 32) * k;
+              data[p] = 32 + (174 - 32) * k;
+              data[p + 1] = 32 + (104 - 32) * k;
+              data[p + 2] = 32 + (173 - 32) * k;
               data[p + 3] = 255;
               p += 4;
             }
