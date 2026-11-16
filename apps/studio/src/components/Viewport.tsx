@@ -193,12 +193,44 @@ export function Viewport({
   const meterBars = useRef<HTMLDivElement>(null);
   const [failure, setFailure] = useState("");
   const [ready, setReady] = useState(false);
-  const [autoRotate, setAutoRotate] = useState(false);
-  const [nodes3d, setNodes3d] = useState(false);
+  const initialVp = useRef((() => {
+    try {
+      const raw = localStorage.getItem("zence.viewportUI.v1");
+      if (raw) return JSON.parse(raw) as Partial<{
+        autoRotate: boolean;
+        nodes3d: boolean;
+        cardOrient: "arc" | "flat" | "billboard";
+        cardTiltDeg: number;
+        overlay3dInHydra: boolean;
+      }>;
+    } catch {
+      // Ignore.
+    }
+    return {};
+  })());
+  const [autoRotate, setAutoRotate] = useState(() => !!initialVp.current.autoRotate);
+  const [nodes3d, setNodes3d] = useState(() => !!initialVp.current.nodes3d);
   const [edit3d, setEdit3d] = useState(false);
-  const [cardOrient, setCardOrient] = useState<"arc" | "flat" | "billboard">("arc");
-  const [cardTiltDeg, setCardTiltDeg] = useState(0);
-  const [overlay3dInHydra, setOverlay3dInHydra] = useState(true);
+  const [cardOrient, setCardOrient] = useState<"arc" | "flat" | "billboard">(
+    () => (initialVp.current.cardOrient === "flat" || initialVp.current.cardOrient === "billboard" ? initialVp.current.cardOrient : "arc"),
+  );
+  const [cardTiltDeg, setCardTiltDeg] = useState(
+    () => (typeof initialVp.current.cardTiltDeg === "number" && Number.isFinite(initialVp.current.cardTiltDeg) ? initialVp.current.cardTiltDeg : 0),
+  );
+  const [overlay3dInHydra, setOverlay3dInHydra] = useState(
+    () => (typeof initialVp.current.overlay3dInHydra === "boolean" ? initialVp.current.overlay3dInHydra : true),
+  );
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(
+        "zence.viewportUI.v1",
+        JSON.stringify({ autoRotate, nodes3d, cardOrient, cardTiltDeg, overlay3dInHydra }),
+      );
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [autoRotate, nodes3d, cardOrient, cardTiltDeg, overlay3dInHydra]);
   const [mocapActive, setMocapActive] = useState(sharedMocap.state.active);
 
   useEffect(

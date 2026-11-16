@@ -20,7 +20,23 @@ export function useLiveStudio(
   const [automatic, setAutomatic] = useState(true);
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
-  const [mode, setMode] = useState<"3d" | "hydra">("hydra");
+  const [mode, setMode] = useState<"3d" | "hydra">(() => {
+    try {
+      const saved = localStorage.getItem("zence.liveMode.v1");
+      if (saved === "3d" || saved === "hydra") return saved;
+    } catch {
+      // Ignore storage errors.
+    }
+    return "hydra";
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("zence.liveMode.v1", mode);
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [mode]);
   const [blackout, setBlackout] = useState(false);
   const [projecting, setProjecting] = useState(false);
   const [qr, setQr] = useState("");

@@ -1,4 +1,4 @@
-import { Plus, Send, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
+import { Mic, MicOff, Plus, Send, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { streamChat } from "../ai/chat.ts";
 import { activeProvider, aiConfig, chosenModel, hasCredential, probeServerKeys, providerLabel } from "../ai/config.ts";
@@ -28,14 +28,46 @@ type Conversation = {
 };
 
 type Point = { x: number; y: number };
+type WindowSize = { width: number; height: number };
+
+interface SpeechRecognitionResultItem {
+  transcript: string;
+}
+
+interface SpeechRecognitionResult {
+  readonly isFinal: boolean;
+  readonly [index: number]: SpeechRecognitionResultItem;
+}
+
+interface SpeechRecognitionEventLike {
+  readonly resultIndex: number;
+  readonly results: ArrayLike<SpeechRecognitionResult>;
+}
+
+interface SpeechRecognitionLike {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  onresult: ((ev: SpeechRecognitionEventLike) => void) | null;
+  onerror: ((ev: { error?: string }) => void) | null;
+  onend: (() => void) | null;
+  start: () => void;
+  stop: () => void;
+  abort: () => void;
+}
 
 const POS_PREFIX = "zence.pos.";
+const SIZE_KEY = "zence.size.ai-window";
 const CONV_KEY = "zence.ai.conversations";
 const ACTIVE_CONV_KEY = "zence.ai.activeConv";
 const DRAG_THRESHOLD = 4;
 const MARGIN = 10;
 const HANDLE_W = 74;
 const HANDLE_H = 66;
+const DEFAULT_WIN_W = 396;
+const DEFAULT_WIN_H = 500;
+const MIN_WIN_W = 320;
+const MIN_WIN_H = 280;
 const MAX_CONVERSATIONS = 16;
 
 function readPos(key: string): Point | null {
@@ -67,6 +99,40 @@ function clampPos(pt: Point, w: number, h: number): Point {
     x: Math.min(Math.max(pt.x, MARGIN), maxX),
     y: Math.min(Math.max(pt.y, MARGIN), maxY),
   };
+}
+
+function clampSize(sz: WindowSize, pos: Point): WindowSize {
+  const maxW = Math.max(MIN_WIN_W, Math.min(820, window.innerWidth - pos.x - MARGIN));
+  const maxH = Math.max(MIN_WIN_H, Math.min(860, window.innerHeight - pos.y - MARGIN));
+  return {
+    width: Math.round(Math.min(Math.max(sz.width, MIN_WIN_W), maxW)),
+    height: Math.round(Math.min(Math.max(sz.height, MIN_WIN_H), maxH)),
+  };
+}
+
+function readWinSize(): WindowSize {
+  try {
+    const raw = localStorage.getItem(SIZE_KEY);
+    if (!raw) return { width: DEFAULT_WIN_W, height: DEFAULT_WIN_H };
+    const s = JSON.parse(raw) as Partial<WindowSize>;
+    if (typeof s.width === "number" && typeof s.height === "number" && Number.isFinite(s.width) && Number.isFinite(s.height)) {
+      return {
+        width: Math.max(MIN_WIN_W, Math.min(820, s.width)),
+        height: Math.max(MIN_WIN_H, Math.min(860, s.height)),
+      };
+    }
+  } catch {
+    // Ignore storage errors.
+  }
+  return { width: DEFAULT_WIN_W, height: DEFAULT_WIN_H };
+}
+
+function saveWinSize(sz: WindowSize): void {
+  try {
+    localStorage.setItem(SIZE_KEY, JSON.stringify(sz));
+  } catch {
+    // Ignore storage errors.
+  }
 }
 
 function createConversation(index = 1): Conversation {
@@ -125,6 +191,7 @@ export function FloatingAssistant({
 
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
+  const [listening, setListening] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
   const [, setCfgRev] = useState(0);
 
@@ -134,6 +201,7 @@ export function FloatingAssistant({
   const [winPos, setWinPos] = useState<Point>(() =>
     readPos("ai-window") ?? { x: Math.max(20, window.innerWidth - 430), y: 74 },
   );
+  const [winSize, setWinSize] = useState<WindowSize>(readWinSize);
 
   const handleRef = useRef<HTMLButtonElement>(null);
   const winRef = useRef<HTMLElement>(null);
@@ -143,6 +211,8 @@ export function FloatingAssistant({
   const abortRef = useRef<AbortController | null>(null);
   const closeTimerRef = useRef<number | null>(null);
   const dragCleanupRef = useRef<(() => void) | null>(null);
+  const speechRef = useRef<SpeechRecognitionLike | null>(null);
+  const voiceBaseRef = useRef("");
   const suppressClickRef = useRef(false);
   const contextRef = useRef(context);
   contextRef.current = context;
@@ -167,11 +237,23 @@ export function FloatingAssistant({
   useEffect(() => {
     const onResize = () => {
       setHandlePos((p) => clampPos(p, HANDLE_W, HANDLE_H));
-      setWinPos((p) => clampPos(p, 396, 500));
+      setWinPos((p) => {
+        const nextPos = clampPos(p, winSize.width, winSize.height);
+        setWinSize((sz) => clampSize(sz, nextPos));
+        return nextPos;
+      });
     };
     onResize();
     window.addEventListener("resize", onResize);
-    return () => window.removeEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("resize", onResize);
+      try {
+        speechRef.current?.abort();
+      } catch {
+        // Ignore speech abort cleanup errors.
+      }
+      dragCleanupRef.current?.();
+    };
   }, []);
 
   const mounted = popPhase !== "closed";
@@ -183,9 +265,10 @@ export function FloatingAssistant({
     }
     if (open) {
       setPopPhase(reducedMotion ? "open" : "entering");
-      setWinPos((p) => clampPos(p, winRef.current?.offsetWidth || 396, winRef.current?.offsetHeight || 500));
+      setWinPos((p) => clampPos(p, winSize.width, winSize.height));
       requestAnimationFrame(() => inputRef.current?.focus());
     } else if (popPhase !== "closed") {
+      stopDictation();
       if (reducedMotion) {
         setPopPhase("closed");
       } else {
@@ -374,6 +457,7 @@ export function FloatingAssistant({
   async function sendPrompt(textRaw: string) {
     const q = textRaw.trim();
     if (!q || busy || !activeConv) return;
+    stopDictation();
     const targetConvId = activeConv.id;
     const snapshotTurns = activeConv.turns;
     const autoTitle = summarizeTitle(q);
@@ -466,9 +550,169 @@ export function FloatingAssistant({
     }
   }
 
+  function stopDictation() {
+    const rec = speechRef.current;
+    speechRef.current = null;
+    if (rec) {
+      try {
+        rec.stop();
+      } catch {
+        // Ignore stop errors.
+      }
+    }
+    setListening(false);
+  }
+
+  function toggleDictation() {
+    if (listening) {
+      stopDictation();
+      return;
+    }
+    const w = window as unknown as {
+      SpeechRecognition?: new () => SpeechRecognitionLike;
+      webkitSpeechRecognition?: new () => SpeechRecognitionLike;
+    };
+    const Rec = w.SpeechRecognition || w.webkitSpeechRecognition;
+    if (!Rec) {
+      setErrorMsg("Tu navegador no soporta dictado por voz (usa Chrome o Edge).");
+      return;
+    }
+    setErrorMsg("");
+    voiceBaseRef.current = draft.trim() ? `${draft.trimEnd()} ` : "";
+
+    const rec = new Rec();
+    rec.continuous = true;
+    rec.interimResults = true;
+    rec.lang = navigator.language || "es-ES";
+
+    rec.onresult = (event) => {
+      let spoken = "";
+      for (let i = 0; i < event.results.length; i += 1) {
+        const res = event.results[i];
+        if (res && res[0]?.transcript) {
+          spoken += res[0].transcript;
+        }
+      }
+      setDraft(`${voiceBaseRef.current}${spoken.trimStart()}`);
+    };
+
+    rec.onerror = (ev) => {
+      speechRef.current = null;
+      setListening(false);
+      if (ev.error === "not-allowed" || ev.error === "service-not-allowed") {
+        setErrorMsg("Permiso de micrófono denegado en el navegador.");
+      }
+    };
+
+    rec.onend = () => {
+      speechRef.current = null;
+      setListening(false);
+    };
+
+    speechRef.current = rec;
+    try {
+      rec.start();
+      setListening(true);
+      inputRef.current?.focus();
+    } catch {
+      speechRef.current = null;
+      setListening(false);
+      setErrorMsg("No se pudo iniciar el micrófono de dictado.");
+    }
+  }
+
+  function startResize(ev: React.PointerEvent, axis: "y" | "xy") {
+    const winEl = winRef.current;
+    if (ev.button !== 0 || !winEl) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    dragCleanupRef.current?.();
+
+    const targetEl = ev.currentTarget as HTMLElement;
+    const pointerId = ev.pointerId;
+    const startX = ev.clientX;
+    const startY = ev.clientY;
+    const startSize: WindowSize = {
+      width: winEl.offsetWidth || winSize.width,
+      height: winEl.offsetHeight || winSize.height,
+    };
+    let rafId = 0;
+    let latestDx = 0;
+    let latestDy = 0;
+
+    winEl.classList.add("is-dragging");
+    try {
+      targetEl.setPointerCapture(pointerId);
+    } catch {
+      // Ignore synthetic event capture errors.
+    }
+
+    const applySize = () => {
+      rafId = 0;
+      const next = clampSize(
+        {
+          width: axis === "xy" ? startSize.width + latestDx : startSize.width,
+          height: startSize.height + latestDy,
+        },
+        winPos,
+      );
+      winEl.style.width = `${next.width}px`;
+      winEl.style.height = `${next.height}px`;
+    };
+
+    const cleanup = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      if (rafId) {
+        cancelAnimationFrame(rafId);
+        rafId = 0;
+      }
+      try {
+        if (targetEl.hasPointerCapture(pointerId)) targetEl.releasePointerCapture(pointerId);
+      } catch {
+        // Ignore.
+      }
+      dragCleanupRef.current = null;
+    };
+
+    const onMove = (mEv: PointerEvent) => {
+      if (mEv.pointerId !== pointerId) return;
+      latestDx = mEv.clientX - startX;
+      latestDy = mEv.clientY - startY;
+      if (!rafId) rafId = requestAnimationFrame(applySize);
+    };
+
+    const onUp = (uEv: PointerEvent) => {
+      if (uEv.pointerId !== pointerId && uEv.type !== "pointercancel") return;
+      cleanup();
+      winEl.classList.remove("is-dragging");
+      const final = clampSize(
+        {
+          width: axis === "xy" ? startSize.width + (uEv.clientX - startX) : startSize.width,
+          height: startSize.height + (uEv.clientY - startY),
+        },
+        winPos,
+      );
+      winEl.style.width = `${final.width}px`;
+      winEl.style.height = `${final.height}px`;
+      setWinSize(final);
+      saveWinSize(final);
+    };
+
+    dragCleanupRef.current = () => {
+      cleanup();
+      winEl.classList.remove("is-dragging");
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+    window.addEventListener("pointercancel", onUp);
+  }
+
   // Vector relativo desde el centro de la ventana al centro del botón orgánico
-  const winW = winRef.current?.offsetWidth || 396;
-  const winH = winRef.current?.offsetHeight || 500;
+  const winW = winSize.width;
+  const winH = winSize.height;
   const launchDx = Math.round(handlePos.x + HANDLE_W / 2 - (winPos.x + winW / 2));
   const launchDy = Math.round(handlePos.y + HANDLE_H / 2 - (winPos.y + winH / 2));
 
@@ -512,6 +756,8 @@ export function FloatingAssistant({
           style={{
             left: `${winPos.x}px`,
             top: `${winPos.y}px`,
+            width: `${winSize.width}px`,
+            height: `${winSize.height}px`,
             "--zence-dx": `${launchDx}px`,
             "--zence-dy": `${launchDy}px`,
           } as React.CSSProperties}
@@ -665,7 +911,8 @@ export function FloatingAssistant({
               ref={inputRef}
               rows={2}
               value={draft}
-              placeholder="Ej: Crea nodos para cargar una imagen con nivel y blur hacia Hydra…"
+              className={listening ? "is-listening" : ""}
+              placeholder={listening ? "Escuchando… habla ahora" : "Ej: Crea nodos para cargar una imagen con nivel y blur hacia Hydra…"}
               onChange={(e) => setDraft(e.target.value)}
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) {
@@ -674,6 +921,16 @@ export function FloatingAssistant({
                 }
               }}
             />
+            <button
+              type="button"
+              className={`button zence-ai-mic ${listening ? "is-listening" : ""}`}
+              title={listening ? "Detener dictado por voz" : "Dictar mensaje por voz"}
+              aria-label={listening ? "Detener dictado por voz" : "Dictar por voz"}
+              aria-pressed={listening}
+              onClick={toggleDictation}
+            >
+              {listening ? <MicOff size={13} /> : <Mic size={13} />}
+            </button>
             {busy ? (
               <button
                 type="button"
@@ -694,6 +951,17 @@ export function FloatingAssistant({
               </button>
             )}
           </form>
+
+          <div
+            className="zence-ai-resize-b"
+            title="Arrastra para ajustar altura"
+            onPointerDown={(e) => startResize(e, "y")}
+          />
+          <div
+            className="zence-ai-resize-br"
+            title="Arrastra para escalar ancho y alto"
+            onPointerDown={(e) => startResize(e, "xy")}
+          />
         </section>
       )}
     </>

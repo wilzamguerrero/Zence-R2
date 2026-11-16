@@ -70,6 +70,96 @@ const defaultSplits = {
   viewportRatio: 0.58,
 };
 
+const SESSION_STORAGE_KEY = "zence.session.v1";
+const WORKSPACE_STORAGE_KEY = "zence.workspace.v1";
+
+type WorkspaceSession = {
+  selectedIds: string[];
+  pinnedIds: string[];
+  codeOverlay: boolean;
+  activeCue: string;
+  splits: typeof defaultSplits;
+};
+
+function loadSessionDocument(): StudioDocument {
+  try {
+    const raw = localStorage.getItem(SESSION_STORAGE_KEY);
+    if (!raw) return initialDocument;
+    return loadDocument(JSON.parse(raw), "zence-session");
+  } catch {
+    return initialDocument;
+  }
+}
+
+function saveSessionDocument(document: StudioDocument): void {
+  try {
+    const { project, ...studio } = document;
+    localStorage.setItem(SESSION_STORAGE_KEY, JSON.stringify({ ...project, studio }));
+  } catch {
+    // Ignore storage quota errors in restricted contexts.
+  }
+}
+
+function loadWorkspaceSession(doc: StudioDocument): WorkspaceSession {
+  const validIds = new Set(doc.project.nodes.map((n) => n.id));
+  const fallbackSelected = doc.project.nodes[0]?.id ? [doc.project.nodes[0].id] : [];
+  const cues = doc.cues ?? defaultCues;
+  const fallbackCue = cues[0]?.id ?? defaultCues[0].id;
+  try {
+    const raw = localStorage.getItem(WORKSPACE_STORAGE_KEY);
+    if (!raw) {
+      return {
+        selectedIds: fallbackSelected,
+        pinnedIds: [],
+        codeOverlay: false,
+        activeCue: fallbackCue,
+        splits: defaultSplits,
+      };
+    }
+    const parsed = JSON.parse(raw) as Partial<WorkspaceSession>;
+    const selectedIds = Array.isArray(parsed.selectedIds)
+      ? parsed.selectedIds.filter((id): id is string => typeof id === "string" && validIds.has(id))
+      : fallbackSelected;
+    const pinnedIds = Array.isArray(parsed.pinnedIds)
+      ? parsed.pinnedIds.filter((id): id is string => typeof id === "string" && validIds.has(id))
+      : [];
+    const splits = parsed.splits && typeof parsed.splits === "object"
+      ? {
+          graphWidth:
+            typeof parsed.splits.graphWidth === "number" && Number.isFinite(parsed.splits.graphWidth)
+              ? parsed.splits.graphWidth
+              : defaultSplits.graphWidth,
+          inspectorWidth:
+            typeof parsed.splits.inspectorWidth === "number" && Number.isFinite(parsed.splits.inspectorWidth)
+              ? parsed.splits.inspectorWidth
+              : defaultSplits.inspectorWidth,
+          viewportRatio:
+            typeof parsed.splits.viewportRatio === "number" && Number.isFinite(parsed.splits.viewportRatio)
+              ? parsed.splits.viewportRatio
+              : defaultSplits.viewportRatio,
+        }
+      : defaultSplits;
+    const activeCue = typeof parsed.activeCue === "string" && cues.some((c) => c.id === parsed.activeCue)
+      ? parsed.activeCue
+      : fallbackCue;
+    return {
+      selectedIds: selectedIds.length > 0 || validIds.size === 0 ? selectedIds : fallbackSelected,
+      pinnedIds,
+      codeOverlay: typeof parsed.codeOverlay === "boolean" ? parsed.codeOverlay : false,
+      activeCue,
+      splits,
+    };
+  } catch {
+    return {
+      selectedIds: fallbackSelected,
+      pinnedIds: [],
+      codeOverlay: false,
+      activeCue: fallbackCue,
+      splits: defaultSplits,
+    };
+  }
+}
+
 function loadPanels(): PanelVisibility {
   try {
     const raw = localStorage.getItem("zence.panels.v1");
@@ -111,12 +201,15 @@ function timestamp(tick: number): string {
 }
 
 export function App() {
-  const [design, setDesign] = useState<StudioDocument>(initialDocument);
-  const [playback] = useState(() => new Playback(initialDocument.project));
-  const [selectedIds, setSelectedIds] = useState<string[]>(() =>
-    initialDocument.project.nodes[0]?.id ? [initialDocument.project.nodes[0].id] : [],
-  );
-  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const restoredDocRef = useRef<StudioDocument | null>(null);
+  if (!restoredDocRef.current) restoredDocRef.current = loadSessionDocument();
+  const restoredWorkspaceRef = useRef<WorkspaceSession | null>(null);
+  if (!restoredWorkspaceRef.current) restoredWorkspaceRef.current = loadWorkspaceSession(restoredDocRef.current);
+
+  const [design, setDesign] = useState<StudioDocument>(() => restoredDocRef.current!);
+  const [playback] = useState(() => new Playback(restoredDocRef.current!.project));
+  const [selectedIds, setSelectedIds] = useState<string[]>(() => restoredWorkspaceRef.current!.selectedIds);
+  const [pinnedIds, setPinnedIds] = useState<string[]>(() => restoredWorkspaceRef.current!.pinnedIds);
   const selected = selectedIds[0] ?? "";
   const setSelected = (id: string) => setSelectedIds(id ? [id] : []);
   const togglePin = (id: string) =>
@@ -126,14 +219,16 @@ export function App() {
   const [tick, setTick] = useState(initialTick);
   const [playing, setPlaying] = useState(true);
   const [panels, setPanels] = useState<PanelVisibility>(loadPanels);
-  const [codeOverlay, setCodeOverlay] = useState(false);
+  const [codeOverlay, setCodeOverlay] = useState(() => restoredWorkspaceRef.current!.codeOverlay);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
   const [prefsTab, setPrefsTab] = useState<PrefTab>("graph");
   const [prefs, setPrefs] = useState<StudioPreferences>(loadPreferences);
   const [paletteSignal, setPaletteSignal] = useState(0);
-  const [splits, setSplits] = useState(defaultSplits);
-  const [activeCue, setActiveCue] = useState<string>(defaultCues[0].id);
+  const [splits, setSplits] = useState(() => restoredWorkspaceRef.current!.splits);
+  const [activeCue, setActiveCue] = useState<string>(() => restoredWorkspaceRef.current!.activeCue);
+  const latestDesignRef = useRef(design);
+  latestDesignRef.current = design;
   const input = useRef<HTMLInputElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
@@ -187,6 +282,39 @@ export function App() {
       // Ignore storage errors in private contexts.
     }
   }, [panels]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      saveSessionDocument(design);
+    }, 240);
+    return () => window.clearTimeout(timer);
+  }, [design]);
+
+  useEffect(() => {
+    const flushSession = () => saveSessionDocument(latestDesignRef.current);
+    window.addEventListener("pagehide", flushSession);
+    window.addEventListener("beforeunload", flushSession);
+    return () => {
+      window.removeEventListener("pagehide", flushSession);
+      window.removeEventListener("beforeunload", flushSession);
+      flushSession();
+    };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const payload: WorkspaceSession = {
+        selectedIds,
+        pinnedIds,
+        codeOverlay,
+        activeCue,
+        splits,
+      };
+      localStorage.setItem(WORKSPACE_STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // Ignore storage errors.
+    }
+  }, [selectedIds, pinnedIds, codeOverlay, activeCue, splits]);
 
   const setBlackout = live.setBlackout;
   useEffect(() => {
