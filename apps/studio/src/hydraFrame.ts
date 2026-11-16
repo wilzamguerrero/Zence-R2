@@ -18,6 +18,17 @@ export const presets = {
   .modulateScale(osc(5), () => control("intensity") * 0.12)
   .color(0.78, 0.45, 0.85)
   .out(o0)`,
+  Caleido: `osc(18, 0.03, 0.8)
+  .kaleid(6)
+  .mult(voronoi(5, 0.2).rotate(() => time * 0.15))
+  .modulate(o0, () => 0.04 + control("intensity") * 0.06)
+  .color(0.72, 0.42, 0.88)
+  .out(o0)`,
+  Plasma: `noise(3, 0.2)
+  .colorama(() => 0.25 + mid() * 0.6)
+  .modulateRotate(osc(8, 0.05), () => 0.4 + control("intensity") * 0.25)
+  .contrast(1.3)
+  .out(o0)`,
   Medio: `src(s0)
   .rotate(() => time * 0.02)
   .modulate(osc(4), () => control("intensity") * 0.05)
@@ -30,7 +41,7 @@ export function frameDocument(): string {
   const canvas = document.querySelector("canvas");
   canvas.getContext("webgl", {preserveDrawingBuffer:true});
   const hydra = new Hydra({canvas, detectAudio:false, enableStreamCapture:false, makeGlobal:true, autoLoop:false, width:960, height:540});
-  let controls = {}, running = true, frameExport = false, busy = false, lastExport = 0, media = null, mediaUrl = null;
+  let controls = {}, running = true, frameExport = false, busy = false, lastExport = 0, media = null, mediaUrl = null, liveSourceCanvas = null, liveSourceInit = false;
   window.control = id => controls[id] ?? 0;
   window.audio = () => controls.__audio ?? 0;
   window.bass = () => controls.__bass ?? 0;
@@ -54,6 +65,25 @@ export function frameDocument(): string {
     if(data.type === "playing") running = data.value;
     if(data.type === "export") frameExport = data.value;
     if(data.type === "blackout") canvas.style.visibility = data.value ? "hidden" : "visible";
+    if(data.type === "sourceFrame" && data.bitmap) {
+      if(!liveSourceCanvas) {
+        liveSourceCanvas = document.createElement("canvas");
+        liveSourceCanvas.width = 640;
+        liveSourceCanvas.height = 360;
+      }
+      liveSourceCanvas.getContext("2d").drawImage(data.bitmap, 0, 0, liveSourceCanvas.width, liveSourceCanvas.height);
+      data.bitmap.close();
+      if(!liveSourceInit) {
+        liveSourceInit = true;
+        s0.init({src: liveSourceCanvas, dynamic: true});
+      }
+    }
+    if(data.type === "resetSource") {
+      liveSourceInit = false;
+    }
+    if(data.type === "snapshot") {
+      createImageBitmap(canvas).then(bitmap=>parent.postMessage({type:"snapshotBitmap",bitmap},"*",[bitmap])).catch(()=>{});
+    }
     if(data.type === "media") {
       try {
         if(media?.pause) media.pause();
@@ -67,6 +97,7 @@ export function frameDocument(): string {
           media.src = mediaUrl; await media.decode();
         }
         s0.init({src:media});
+        liveSourceInit = false;
         hydra.tick(0);
         tell({type:"mediaReady"});
       } catch(error) { tell({type:"error",message:"No se pudo decodificar el medio. " + error.message}); }

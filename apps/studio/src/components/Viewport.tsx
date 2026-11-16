@@ -1,5 +1,7 @@
 import {
   Box,
+  Camera,
+  Code2,
   Crosshair,
   Expand,
   Grid2X2,
@@ -91,6 +93,12 @@ type ViewportProps = {
   playing: boolean;
   hidden?: boolean;
   blackout?: boolean;
+  codeOverlay?: boolean;
+  onToggleCodeOverlay?: () => void;
+  codeSlot?: ReactNode;
+  microphone?: boolean;
+  audioLevels?: RefObject<{ audio: number; bass: number; mid: number; high: number }>;
+  onCapturePng?: () => void;
   onFrame: (tick: number) => void;
   onGrid: () => void;
   overlay?: ReactNode;
@@ -107,6 +115,12 @@ export function Viewport({
   playing,
   hidden,
   blackout,
+  codeOverlay,
+  onToggleCodeOverlay,
+  codeSlot,
+  microphone,
+  audioLevels,
+  onCapturePng,
   onFrame,
   onGrid,
   overlay,
@@ -119,6 +133,7 @@ export function Viewport({
   const container = useRef<HTMLDivElement>(null);
   const mount = useRef<HTMLDivElement>(null);
   const fpsNode = useRef<HTMLSpanElement>(null);
+  const meterBars = useRef<HTMLDivElement>(null);
   const [failure, setFailure] = useState("");
   const [ready, setReady] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
@@ -302,6 +317,14 @@ export function Viewport({
         fpsCounter = 0;
         fpsMark = now;
       }
+      if (meterBars.current && audioLevels?.current) {
+        const { bass, mid, high, audio } = audioLevels.current;
+        const vals = [bass, mid, high, audio];
+        Array.from(meterBars.current.children).forEach((el, idx) => {
+          const pct = Math.min(100, Math.max(8, Math.round((vals[idx] ?? 0) * 140)));
+          (el as HTMLElement).style.height = `${pct}%`;
+        });
+      }
       playback.advance(elapsed);
       const { runtime, tick } = playback;
       if (attribute?.count !== runtime.pointCount) {
@@ -447,6 +470,25 @@ export function Viewport({
           <button
             type="button"
             className="icon-button"
+            aria-label="Código sobre el visor (Alt+C)"
+            aria-pressed={codeOverlay}
+            title="Código sobre el visor estilo Hydra (Alt+C)"
+            onClick={onToggleCodeOverlay}
+          >
+            <Code2 size={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Capturar imagen PNG"
+            title="Capturar imagen PNG"
+            onClick={onCapturePng}
+          >
+            <Camera size={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
             title="Importar GLB / OBJ"
             aria-label="Importar modelo 3D"
             onClick={() => modelInput.current?.click()}
@@ -501,6 +543,7 @@ export function Viewport({
           ref={mount}
         />
         {overlay}
+        {codeSlot}
         {blackout && (
           <div className="viewport-blackout" role="status">
             <span>BLACKOUT ACTIVO</span>
@@ -538,6 +581,14 @@ export function Viewport({
           <Orbit size={13} /> Arrastrar para orbitar · rueda para acercar
         </div>
         <div className="view-live">
+          {microphone && (
+            <div className="view-audio-meter" ref={meterBars} title="Espectro de audio (Bass / Mid / High / Total)">
+              <i />
+              <i />
+              <i />
+              <i />
+            </div>
+          )}
           <span className={`status-dot ${playing && ready ? "" : "muted"}`} />{" "}
           {playing && ready ? "En vivo" : "En pausa"}
         </div>

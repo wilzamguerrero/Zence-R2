@@ -4,6 +4,8 @@ import {
   BookmarkPlus,
   Camera,
   Code2,
+  Command,
+  Dices,
   Download,
   Eye,
   EyeOff,
@@ -12,6 +14,7 @@ import {
   Layers,
   Mic,
   MicOff,
+  Monitor,
   MonitorPlay,
   Pause,
   Play,
@@ -19,19 +22,24 @@ import {
   SlidersHorizontal,
   Smartphone,
   Video,
+  Wand2,
+  Webcam,
   Workflow,
   Zap,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
 import type { Edge, Node, Project } from "../../../packages/engine/project.ts";
 import { fixedStepSeconds } from "../../../packages/engine/clock.ts";
 import { Assistant } from "./components/Assistant.tsx";
-import { LiveCode } from "./components/LiveCode.tsx";
+import { CommandPalette } from "./components/CommandPalette.tsx";
+import type { PaletteAction } from "./components/CommandPalette.tsx";
+import { LiveCode, OverlayCode } from "./components/LiveCode.tsx";
 import { useLiveStudio } from "./useLiveStudio.ts";
 import { Graph } from "./components/Graph.tsx";
 import { Inspector } from "./components/Inspector.tsx";
 import { Viewport } from "./components/Viewport.tsx";
+import { formatHydraCode, mutateHydraCode } from "./hydraTools.ts";
 import { durationTicks, Playback } from "./playback.ts";
 import {
   autoLayout,
@@ -54,6 +62,12 @@ const defaultPanels: PanelVisibility = {
   viewport: true,
   code: true,
   inspector: true,
+};
+
+const defaultSplits = {
+  graphWidth: 292,
+  inspectorWidth: 266,
+  viewportRatio: 0.58,
 };
 
 function loadPanels(): PanelVisibility {
@@ -106,16 +120,20 @@ export function App() {
   const [tick, setTick] = useState(initialTick);
   const [playing, setPlaying] = useState(true);
   const [panels, setPanels] = useState<PanelVisibility>(loadPanels);
+  const [codeOverlay, setCodeOverlay] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [splits, setSplits] = useState(defaultSplits);
   const [activeCue, setActiveCue] = useState<string>(defaultCues[0].id);
   const input = useRef<HTMLInputElement>(null);
   const mediaInput = useRef<HTMLInputElement>(null);
+  const workspaceRef = useRef<HTMLElement>(null);
+  const centerRef = useRef<HTMLDivElement>(null);
   const tapMarks = useRef<number[]>([]);
 
   const project = design.project;
   const bpm = design.bpm ?? 120;
   const cues = design.cues ?? defaultCues;
   const node = project.nodes.find(({ id }) => id === selected);
-  // Read live evaluated values from runtime (re-read whenever tick or project updates).
   void tick;
   const liveValues = playback.runtime.getNumbers();
 
@@ -144,6 +162,16 @@ export function App() {
   const setBlackout = live.setBlackout;
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setPaletteOpen((open) => !open);
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "h") {
+        event.preventDefault();
+        setCodeOverlay((v) => !v);
+        return;
+      }
       if (event.altKey) {
         if (event.key === "1") {
           event.preventDefault();
@@ -160,6 +188,9 @@ export function App() {
         } else if (event.key === "0") {
           event.preventDefault();
           setPanels(defaultPanels);
+        } else if (event.key.toLowerCase() === "c") {
+          event.preventDefault();
+          setCodeOverlay((v) => !v);
         } else if (event.key.toLowerCase() === "b") {
           event.preventDefault();
           setBlackout((v) => !v);
@@ -174,16 +205,69 @@ export function App() {
     setPanels((current) => ({ ...current, [id]: !current[id] }));
   }
 
-  function applyPresetLayout(preset: "studio" | "live" | "patch" | "stage") {
+  function applyPresetLayout(preset: "studio" | "live" | "hydra" | "stage") {
     if (preset === "studio") {
       setPanels({ graph: true, viewport: true, code: true, inspector: true });
+      setCodeOverlay(false);
     } else if (preset === "live") {
       setPanels({ graph: false, viewport: true, code: false, inspector: true });
-    } else if (preset === "patch") {
-      setPanels({ graph: true, viewport: true, code: false, inspector: true });
+      setCodeOverlay(false);
+    } else if (preset === "hydra") {
+      setPanels({ graph: false, viewport: true, code: false, inspector: false });
+      live.setMode("hydra");
+      setCodeOverlay(true);
     } else {
       setPanels({ graph: false, viewport: true, code: false, inspector: false });
+      setCodeOverlay(false);
     }
+  }
+
+  function startHorizontalResize(side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const initialGraph = splits.graphWidth;
+    const initialInspector = splits.inspectorWidth;
+    function onMove(moveEvent: PointerEvent) {
+      const dx = moveEvent.clientX - startX;
+      const maxSide = Math.max(240, (workspaceRef.current?.clientWidth ?? 1200) * 0.45);
+      if (side === "left") {
+        setSplits((s) => ({
+          ...s,
+          graphWidth: Math.round(Math.max(210, Math.min(maxSide, initialGraph + dx))),
+        }));
+      } else {
+        setSplits((s) => ({
+          ...s,
+          inspectorWidth: Math.round(Math.max(220, Math.min(maxSide, initialInspector - dx))),
+        }));
+      }
+    }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }
+
+  function startVerticalResize(event: ReactPointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const container = centerRef.current;
+    if (!container) return;
+    const rect = container.getBoundingClientRect();
+    function onMove(moveEvent: PointerEvent) {
+      const ratio = (moveEvent.clientY - rect.top) / Math.max(1, rect.height);
+      setSplits((s) => ({
+        ...s,
+        viewportRatio: Math.max(0.25, Math.min(0.8, Number(ratio.toFixed(3)))),
+      }));
+    }
+    function onUp() {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    }
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
   }
 
   function applyTopology(
@@ -406,23 +490,65 @@ export function App() {
     }
   }
 
+  const paletteActions = useMemo<PaletteAction[]>(
+    () => [
+      { id: "preset-studio", group: "Vista", label: "Modo Estudio (todos los paneles)", shortcut: "Alt+0", run: () => applyPresetLayout("studio") },
+      { id: "preset-hydra", group: "Vista", label: "Modo Hydra Live (visor + código flotante)", run: () => applyPresetLayout("hydra") },
+      { id: "preset-live", group: "Vista", label: "Modo Live VJ (visor + cues + salida)", run: () => applyPresetLayout("live") },
+      { id: "preset-stage", group: "Vista", label: "Modo Escenario (solo visor limpio)", run: () => applyPresetLayout("stage") },
+      { id: "toggle-overlay", group: "Panel", label: "Alternar código sobre el visor (estilo Hydra)", shortcut: "Alt+C", run: () => setCodeOverlay((v) => !v) },
+      { id: "toggle-graph", group: "Panel", label: "Mostrar u ocultar Grafo", shortcut: "Alt+1", run: () => togglePanel("graph") },
+      { id: "toggle-viewport", group: "Panel", label: "Mostrar u ocultar Visor", shortcut: "Alt+2", run: () => togglePanel("viewport") },
+      { id: "toggle-code", group: "Panel", label: "Mostrar u ocultar Código acoplado", shortcut: "Alt+3", run: () => togglePanel("code") },
+      { id: "toggle-inspector", group: "Panel", label: "Mostrar u ocultar Inspector y Salida", shortcut: "Alt+4", run: () => togglePanel("inspector") },
+      { id: "engine-3d", group: "Motor", label: "Visor: Escena 3D", run: () => { live.setMode("3d"); live.setTexture(false); } },
+      { id: "engine-hydra", group: "Motor", label: "Visor: Hydra 2D", run: () => { live.setMode("hydra"); live.setTexture(false); } },
+      { id: "engine-hydra3d", group: "Motor", label: "Visor: Hydra en pantalla 3D", run: () => { live.setMode("3d"); live.setTexture(true); } },
+      { id: "code-run", group: "Hydra", label: "Ejecutar código Hydra", shortcut: "Ctrl+Enter", run: () => live.run() },
+      { id: "code-mutate", group: "Hydra", label: "Mutar parámetros del código Hydra", run: () => { const m = mutateHydraCode(design.code); setDesign((c) => ({ ...c, code: m })); live.run(m); } },
+      { id: "code-format", group: "Hydra", label: "Formatear código Hydra", shortcut: "Ctrl+Shift+F", run: () => setDesign((c) => ({ ...c, code: formatHydraCode(c.code) })) },
+      { id: "add-lfo", group: "Operador", label: "Añadir Oscilador LFO", run: () => add("signal.lfo") },
+      { id: "add-math", group: "Operador", label: "Añadir Operador Math / Map", run: () => add("signal.math") },
+      { id: "add-control", group: "Operador", label: "Añadir Control numérico", run: () => add("control.number") },
+      { id: "add-particles", group: "Operador", label: "Añadir Emisor de partículas", run: () => add("simulation.particles") },
+      { id: "layout-graph", group: "Grafo", label: "Auto-ordenar grafo de operadores", run: () => setDesign((c) => ({ ...c, positions: autoLayout(c.project.nodes, c.project.edges) })) },
+      { id: "out-blackout", group: "Directo", label: "Alternar Blackout de salida", shortcut: "Alt+B", run: () => setBlackout((v) => !v) },
+      { id: "out-tap", group: "Directo", label: "Tap Tempo (marcar pulso BPM)", run: tapTempo },
+      { id: "out-png", group: "Salida", label: "Capturar imagen PNG del visor", run: live.capturePng },
+      { id: "out-cam", group: "Fuente", label: "Alternar Cámara web en s0", run: live.toggleCamera },
+      { id: "out-screen", group: "Fuente", label: "Alternar Captura de pantalla en s0", run: live.toggleScreen },
+      { id: "out-mic", group: "Fuente", label: "Alternar Micrófono FFT", run: () => void live.toggleMicrophone() },
+      { id: "out-proj", group: "Salida", label: "Abrir ventana de Proyección", run: live.openProjection },
+      ...cues.map((cue) => ({
+        id: `cue-${cue.id}`,
+        group: "Cue",
+        label: `Disparar Cue: ${cue.name}`,
+        run: () => triggerCue(cue),
+      })),
+    ],
+    [cues, design.code, live],
+  );
+
   const showCenter = panels.viewport || panels.code;
+  const hasLeftSplitter = panels.graph && (showCenter || panels.inspector);
+  const hasRightSplitter = panels.inspector && showCenter;
+  const hasCenterSplitter = panels.viewport && panels.code;
+
   const visibleColumns: string[] = [];
   if (panels.graph) {
-    visibleColumns.push(showCenter || panels.inspector ? "var(--graph-width)" : "1fr");
+    visibleColumns.push(showCenter || panels.inspector ? `${splits.graphWidth}px` : "1fr");
   }
-  if (showCenter) {
-    visibleColumns.push("minmax(320px, 1.75fr)");
-  }
+  if (hasLeftSplitter) visibleColumns.push("5px");
+  if (showCenter) visibleColumns.push("minmax(280px, 1fr)");
+  if (hasRightSplitter) visibleColumns.push("5px");
   if (panels.inspector) {
-    visibleColumns.push(panels.graph || showCenter ? "var(--inspector-width)" : "1fr");
+    visibleColumns.push(panels.graph || showCenter ? `${splits.inspectorWidth}px` : "1fr");
   }
   const anyVisible = panels.graph || showCenter || panels.inspector;
 
-  const centerRows =
-    panels.viewport && panels.code
-      ? "minmax(200px, 1.15fr) minmax(170px, 0.75fr)"
-      : "minmax(0, 1fr)";
+  const centerRows = hasCenterSplitter
+    ? `${splits.viewportRatio}fr 5px ${1 - splits.viewportRatio}fr`
+    : "minmax(0, 1fr)";
 
   return (
     <div className="studio">
@@ -430,7 +556,7 @@ export function App() {
         <div className="topbar-left">
           <div className="brand">
             <span className="brand-symbol" aria-hidden="true">
-              <Activity size={17} strokeWidth={2.35} />
+              <Activity size={16} strokeWidth={2.35} />
             </span>
             <span className="brand-word">
               zence<span> / </span>R2
@@ -479,11 +605,24 @@ export function App() {
               type="button"
               className="panel-toggle"
               aria-pressed={panels.code}
-              title="Mostrar u ocultar Código Hydra (Alt+3)"
+              title="Mostrar u ocultar Código acoplado (Alt+3)"
               onClick={() => togglePanel("code")}
             >
               <Code2 size={13} />
               <span>Código</span>
+            </button>
+            <button
+              type="button"
+              className="panel-toggle"
+              aria-pressed={codeOverlay}
+              title="Código flotante sobre el visor estilo Hydra (Alt+C)"
+              onClick={() => {
+                setCodeOverlay((v) => !v);
+                if (!panels.viewport) setPanels((p) => ({ ...p, viewport: true }));
+              }}
+            >
+              <Code2 size={13} />
+              <span>Overlay</span>
             </button>
             <button
               type="button"
@@ -508,15 +647,23 @@ export function App() {
             <button
               type="button"
               className="preset-chip"
-              title="Visor + Control en vivo"
-              onClick={() => applyPresetLayout("live")}
+              title="Hydra a pantalla completa con código transparente encima"
+              onClick={() => applyPresetLayout("hydra")}
             >
-              Live
+              Hydra Live
             </button>
             <button
               type="button"
               className="preset-chip"
-              title="Solo Visor a pantalla completa de trabajo"
+              title="Visor + Cues y Salida"
+              onClick={() => applyPresetLayout("live")}
+            >
+              VJ
+            </button>
+            <button
+              type="button"
+              className="preset-chip"
+              title="Solo Visor limpio"
               onClick={() => applyPresetLayout("stage")}
             >
               Escenario
@@ -525,6 +672,14 @@ export function App() {
         </nav>
 
         <div className="topbar-actions">
+          <button
+            type="button"
+            className="button button-open"
+            title="Paleta de comandos (Ctrl+K)"
+            onClick={() => setPaletteOpen(true)}
+          >
+            <Command size={13} /> <span className="cmd-kbd">Ctrl+K</span>
+          </button>
           <input
             type="file"
             accept=".json,application/json"
@@ -559,6 +714,7 @@ export function App() {
       </header>
 
       <main
+        ref={workspaceRef}
         className="workspace"
         style={
           anyVisible
@@ -592,7 +748,19 @@ export function App() {
           onCancel={() => setPending(null)}
         />
 
+        {hasLeftSplitter && (
+          <div
+            className="splitter splitter-v"
+            role="separator"
+            aria-orientation="vertical"
+            title="Arrastra para redimensionar · doble clic restablece"
+            onPointerDown={(e) => startHorizontalResize("left", e)}
+            onDoubleClick={() => setSplits((s) => ({ ...s, graphWidth: defaultSplits.graphWidth }))}
+          />
+        )}
+
         <div
+          ref={centerRef}
           className={`center-stack ${showCenter ? "" : "is-panel-hidden"}`}
           style={{ gridTemplateRows: centerRows }}
         >
@@ -602,6 +770,11 @@ export function App() {
             playing={playing}
             hidden={!panels.viewport}
             blackout={live.blackout}
+            codeOverlay={codeOverlay}
+            onToggleCodeOverlay={() => setCodeOverlay((v) => !v)}
+            microphone={live.microphone}
+            audioLevels={live.audioLevels}
+            onCapturePng={live.capturePng}
             onFrame={setTick}
             onGrid={() => changeView({ grid: !design.view.grid })}
             mode={live.mode}
@@ -609,6 +782,18 @@ export function App() {
             bitmap={live.bitmap}
             texture={live.texture}
             onTexture={live.setTexture}
+            codeSlot={
+              codeOverlay ? (
+                <OverlayCode
+                  code={design.code}
+                  status={live.status}
+                  error={live.error}
+                  onRun={live.run}
+                  onCode={(code) => setDesign((current) => ({ ...current, code }))}
+                  onClose={() => setCodeOverlay(false)}
+                />
+              ) : null
+            }
             overlay={
               <iframe
                 ref={live.frame}
@@ -622,6 +807,18 @@ export function App() {
               />
             }
           />
+
+          {hasCenterSplitter && (
+            <div
+              className="splitter splitter-h"
+              role="separator"
+              aria-orientation="horizontal"
+              title="Arrastra para redimensionar · doble clic restablece"
+              onPointerDown={startVerticalResize}
+              onDoubleClick={() => setSplits((s) => ({ ...s, viewportRatio: defaultSplits.viewportRatio }))}
+            />
+          )}
+
           <LiveCode
             code={design.code}
             automatic={live.automatic}
@@ -633,6 +830,17 @@ export function App() {
             onCode={(code) => setDesign((current) => ({ ...current, code }))}
           />
         </div>
+
+        {hasRightSplitter && (
+          <div
+            className="splitter splitter-v"
+            role="separator"
+            aria-orientation="vertical"
+            title="Arrastra para redimensionar · doble clic restablece"
+            onPointerDown={(e) => startHorizontalResize("right", e)}
+            onDoubleClick={() => setSplits((s) => ({ ...s, inspectorWidth: defaultSplits.inspectorWidth }))}
+          />
+        )}
 
         <aside
           className={`panel dock-panel ${panels.inspector ? "" : "is-panel-hidden"}`}
@@ -687,6 +895,24 @@ export function App() {
             >
               {live.recording ? <Camera size={13} /> : <Video size={13} />}
               {live.recording ? "Detener" : "Grabar"}
+            </button>
+            <button
+              type="button"
+              className="button"
+              aria-pressed={live.liveSource === "camera"}
+              title="Cámara web en s0"
+              onClick={live.toggleCamera}
+            >
+              <Webcam size={13} /> Cámara
+            </button>
+            <button
+              type="button"
+              className="button"
+              aria-pressed={live.liveSource === "screen"}
+              title="Compartir pantalla en s0"
+              onClick={live.toggleScreen}
+            >
+              <Monitor size={13} /> Pantalla
             </button>
             <button
               type="button"
@@ -789,9 +1015,16 @@ export function App() {
               <button
                 type="button"
                 className="button"
+                onClick={() => applyPresetLayout("hydra")}
+              >
+                Hydra Live
+              </button>
+              <button
+                type="button"
+                className="button"
                 onClick={() => applyPresetLayout("stage")}
               >
-                Mostrar Visor
+                Solo Visor
               </button>
             </div>
           </div>
@@ -838,6 +1071,12 @@ export function App() {
         </dialog>
       )}
 
+      <CommandPalette
+        open={paletteOpen}
+        actions={paletteActions}
+        onClose={() => setPaletteOpen(false)}
+      />
+
       <footer className="transport" aria-label="Reproducción y tempo">
         <div className="transport-controls">
           <button
@@ -857,6 +1096,28 @@ export function App() {
             onClick={() => seek(0)}
           >
             <RotateCcw size={15} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            title="Mutar Hydra"
+            aria-label="Mutar Hydra"
+            onClick={() => {
+              const mutated = mutateHydraCode(design.code);
+              setDesign((c) => ({ ...c, code: mutated }));
+              live.run(mutated);
+            }}
+          >
+            <Dices size={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            title="Formatear Hydra"
+            aria-label="Formatear Hydra"
+            onClick={() => setDesign((c) => ({ ...c, code: formatHydraCode(c.code) }))}
+          >
+            <Wand2 size={14} />
           </button>
         </div>
 

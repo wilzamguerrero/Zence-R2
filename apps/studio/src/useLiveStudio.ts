@@ -31,9 +31,13 @@ export function useLiveStudio(
   latest.current = { code, nodes, playing, bpm, blackout, onNumber };
   const projection = useRef<Window | null>(null);
   const [microphone, setMicrophone] = useState(false);
+  const [liveSource, setLiveSource] = useState<"none" | "camera" | "screen">("none");
   const [recording, setRecording] = useState(false);
   const [texture, setTexture] = useState(false);
   const mediaStream = useRef<MediaStream | null>(null);
+  const videoStream = useRef<MediaStream | null>(null);
+  const videoElement = useRef<HTMLVideoElement | null>(null);
+  const videoLoop = useRef(0);
   const audioContext = useRef<AudioContext | null>(null);
   const audioFrame = useRef(0);
   const audioLevels = useRef({ audio: 0, bass: 0, mid: 0, high: 0 });
@@ -72,6 +76,23 @@ export function useLiveStudio(
       if (event.data.type === "frame") {
         bitmap.current?.close();
         bitmap.current = event.data.bitmap;
+      }
+      if (event.data.type === "snapshotBitmap" && event.data.bitmap) {
+        const snapBitmap = event.data.bitmap as ImageBitmap;
+        const canvas = document.createElement("canvas");
+        canvas.width = snapBitmap.width;
+        canvas.height = snapBitmap.height;
+        canvas.getContext("2d")?.drawImage(snapBitmap, 0, 0);
+        snapBitmap.close();
+        canvas.toBlob((blob) => {
+          if (!blob) return;
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = "zence-captura.png";
+          link.click();
+          setTimeout(() => URL.revokeObjectURL(url), 1500);
+        }, "image/png");
       }
     };
     window.addEventListener("message", listener);
@@ -164,7 +185,9 @@ export function useLiveStudio(
       projection.current?.close();
       bitmap.current?.close();
       cancelAnimationFrame(audioFrame.current);
+      cancelAnimationFrame(videoLoop.current);
       mediaStream.current?.getTracks().forEach((track) => track.stop());
+      videoStream.current?.getTracks().forEach((track) => track.stop());
       void audioContext.current?.close();
       if (recorder.current?.state === "recording") recorder.current.stop();
     };
@@ -370,6 +393,93 @@ export function useLiveStudio(
       setStatus("No se pudo grabar. " + String(e));
     }
   }
+
+  function stopVideoSource() {
+    cancelAnimationFrame(videoLoop.current);
+    videoStream.current?.getTracks().forEach((track) => track.stop());
+    videoStream.current = null;
+    videoElement.current = null;
+    setLiveSource("none");
+    send({ type: "resetSource" });
+  }
+
+  async function startVideoSource(kind: "camera" | "screen") {
+    if (liveSource === kind) {
+      stopVideoSource();
+      return;
+    }
+    stopVideoSource();
+    try {
+      const stream =
+        kind === "camera"
+          ? await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 360 } })
+          : await navigator.mediaDevices.getDisplayMedia({ video: true });
+      videoStream.current = stream;
+      const video = document.createElement("video");
+      video.muted = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      await video.play();
+      videoElement.current = video;
+      setLiveSource(kind);
+      setStatus(
+        kind === "camera"
+          ? "Cámara activa en s0. Usa src(s0).out(o0) o ejemplo Medio."
+          : "Pantalla compartida en s0. Usa src(s0).out(o0) o ejemplo Medio.",
+      );
+      setError(false);
+
+      stream.getVideoTracks()[0]?.addEventListener("ended", () => {
+        stopVideoSource();
+      });
+
+      let lastPush = 0;
+      let busy = false;
+      function pushFrame(now: number) {
+        if (!videoStream.current) return;
+        if (!busy && now - lastPush > 32 && video.readyState >= 2) {
+          busy = true;
+          lastPush = now;
+          createImageBitmap(video)
+            .then((bmp) => {
+              frame.current?.contentWindow?.postMessage(
+                { type: "sourceFrame", bitmap: bmp },
+                "*",
+                [bmp],
+              );
+            })
+            .catch(() => {})
+            .finally(() => {
+              busy = false;
+            });
+        }
+        videoLoop.current = requestAnimationFrame(pushFrame);
+      }
+      videoLoop.current = requestAnimationFrame(pushFrame);
+    } catch (e) {
+      setError(true);
+      setStatus(`No se pudo abrir ${kind === "camera" ? "la cámara" : "la pantalla"}. ` + String(e));
+    }
+  }
+
+  function capturePng() {
+    if (mode === "hydra") {
+      send({ type: "snapshot" });
+      return;
+    }
+    const canvas = document.querySelector<HTMLCanvasElement>(".render-surface canvas");
+    if (!canvas) return;
+    canvas.toBlob((blob) => {
+      if (!blob) return;
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = "zence-captura.png";
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1500);
+    }, "image/png");
+  }
+
   return {
     bitmap,
     texture,
@@ -381,6 +491,10 @@ export function useLiveStudio(
     syncBeatOrigin: () => {
       beatOrigin.current = performance.now();
     },
+    liveSource,
+    toggleCamera: () => void startVideoSource("camera"),
+    toggleScreen: () => void startVideoSource("screen"),
+    capturePng,
     microphone,
     toggleMicrophone,
     recording,

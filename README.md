@@ -15,22 +15,23 @@ Abrir http://localhost:5173. Mantener la terminal abierta. El servidor también 
 
 ## Funciones del estudio
 
-- **Espacio de trabajo modular**: la barra superior permite mostrar u ocultar de forma independiente **Grafo** (`Alt+1`), **Visor** (`Alt+2`), **Código** (`Alt+3`) e **Inspector** (`Alt+4`), o cambiar entre vistas rápidas (**Estudio**, **Live**, **Escenario**, restaurar todo con `Alt+0`). Los paneles ocultos conservan su contexto WebGL, medios y estado sin reiniciarse mientras los paneles visibles ocupan todo el espacio disponible.
+- **Espacio de trabajo modular y redimensionable**: la barra superior permite mostrar u ocultar de forma independiente **Grafo** (`Alt+1`), **Visor** (`Alt+2`), **Código** (`Alt+3`), **Overlay** (`Alt+C` / `Ctrl+Shift+H`) e **Inspector** (`Alt+4`), o cambiar entre vistas rápidas (**Estudio**, **Hydra Live**, **VJ**, **Escenario**, restaurar todo con `Alt+0`). Los divisores entre paneles son arrastrables (doble clic restablece) y la **Paleta de comandos** (`Ctrl+K`) permite ejecutar cualquier acción al instante.
 - **Grafo de operadores**:
   - Incluye **Control numérico** (`control.number`), **Oscilador LFO** determinista (`signal.lfo`: senoidal, triangular, sierra, cuadrada), **Matemática / Map** (`signal.math`: `mul`, `add`, `clamp`, `abs`, `sin`), **Emisor de partículas** (`simulation.particles`) y **Escena 3D** (`scene.points`).
   - Pulsa `Tab`, haz doble clic en el lienzo o usa `+` para abrir el buscador rápido de operadores. Arrastra el fondo para desplazarte, usa el botón de cuadrícula para auto-ordenar nodos y visualiza valores numéricos en vivo sobre cada salida.
   - Al conectar un puerto se muestra una vista previa del cable y se resaltan los puertos compatibles. El motor valida tipos y conserva la última escena válida si una conexión queda incompleta.
-- **Código Hydra**: usa hydra-synth 1.4 en un iframe aislado. Activa **Auto**, pulsa Ejecutar o usa `Ctrl/⌘ + Enter`. Lee cualquier nodo numérico o modulador con `control("id")`, el pulso del proyecto con `beat()` y `bpm()`, las bandas de micrófono con `audio()`, `bass()`, `mid()`, `high()`, y los medios cargados en `s0`.
-- **Visor**: selector directo entre **3D**, **Hydra** y **Hydra 3D** (pantalla generativa dentro de la escena 3D). Permite orbitar, activar auto-órbita, restablecer cámara, alternar cuadrícula, consultar FPS en vivo e importar modelos **GLB / OBJ**.
+- **Código Hydra dual (acoplado + overlay transparente sobre el visor)**: usa hydra-synth 1.4 con editor acoplado y modo **Overlay** flotante directo sobre el lienzo visual (estilo Hydra), sincronizados en tiempo real. Incluye **autocompletado** de Hydra/Zence, **destello visual al evaluar** (`Ctrl/⌘ + Enter` / `Alt + Enter`), **Mutar parámetros** (randomizer), **Formatear** (`Ctrl/⌘ + Shift + F`) y ejemplos editables (`Órbitas`, `Materia`, `Pulso`, `Caleido`, `Plasma`, `Medio`). Lee nodos con `control("id")`, tempo con `beat()`/`bpm()`, micrófono con `audio()`, `bass()`, `mid()`, `high()`, y medios en `s0`.
+- **Visor**: selector directo entre **3D**, **Hydra** y **Hydra 3D** (pantalla generativa dentro de la escena 3D). Incluye auto-órbita, restablecer cámara, cuadrícula, contador FPS, espectro de audio en vivo, captura **PNG** e importación **GLB / OBJ**.
 - **Banco de Cues, BPM y Blackout**:
   - Dispara cues instantáneos con código Hydra, color, tamaño y controles guardados, o captura el estado actual en cualquier cue.
   - Ajusta el tempo en la barra inferior con **BPM** o **TAP** para sincronizar `beat()`.
   - **Blackout** (`Alt+B`) corta a negro la salida del visor, proyección y grabación de forma inmediata.
-- **Salida y control remoto**:
+- **Salida, fuentes en vivo y control remoto**:
   - **Proyectar** abre una ventana de programa independiente para segundo monitor (doble clic para pantalla completa).
   - **Grabar** captura el visor actual a 1280 × 720.
+  - **Cámara** y **Pantalla** transmiten la webcam o una ventana/pantalla en vivo hacia `s0`.
   - **Micrófono** analiza el espectro en tiempo real (`audio()`, `bass()`, `mid()`, `high()`).
-  - **Imagen / video** carga un archivo en `s0` (video silenciado y en bucle).
+  - **Medio** carga imagen o video en `s0` (video silenciado y en bucle).
   - **Celular** genera un enlace local con QR por WebSocket para controlar nodos numéricos desde un teléfono en la misma LAN.
 - **Guardar / Abrir**: conserva el grafo, operadores, posiciones, cues, BPM, ajustes de vista y código Hydra en `.zence.json`.
 
