@@ -5,6 +5,7 @@ import {
   Crosshair,
   Expand,
   Grid2X2,
+  Layers,
   MoveUpRight,
   Orbit,
   PersonStanding,
@@ -124,6 +125,9 @@ type ViewportProps = {
   codeOverlay?: boolean;
   onToggleCodeOverlay?: () => void;
   codeSlot?: ReactNode;
+  graphSlot?: ReactNode;
+  graphVisible?: boolean;
+  onToggleGraph?: () => void;
   microphone?: boolean;
   audioLevels?: RefObject<{ audio: number; bass: number; mid: number; high: number }>;
   onCapturePng?: () => void;
@@ -152,6 +156,9 @@ export function Viewport({
   codeOverlay,
   onToggleCodeOverlay,
   codeSlot,
+  graphSlot,
+  graphVisible,
+  onToggleGraph,
   microphone,
   audioLevels,
   onCapturePng,
@@ -1072,9 +1079,19 @@ export function Viewport({
           <button
             type="button"
             className="icon-button"
-            aria-label="Nodos Rete en escena 3D"
+            aria-label="Mostrar u ocultar Grafo sobre el visor (Alt+1)"
+            aria-pressed={!!graphVisible}
+            title="Mostrar/ocultar grafo nodal sobre el visor 2D y 3D (Alt+1 · Tab añade)"
+            onClick={onToggleGraph}
+          >
+            <Workflow size={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Tarjetas 3D en espacio"
             aria-pressed={nodes3d}
-            title="Mostrar nodos Rete flotando en el entorno 3D"
+            title="Proyectar nodos en espacio 3D (Ctrl+Q)"
             onClick={() => {
               const next = !nodes3d;
               setNodes3d(next);
@@ -1084,7 +1101,7 @@ export function Viewport({
               }
             }}
           >
-            <Workflow size={14} />
+            <Layers size={14} />
           </button>
           <button
             type="button"
@@ -1162,6 +1179,7 @@ export function Viewport({
           ref={mount}
         />
         {overlay}
+        {graphSlot}
         {codeSlot}
         {nodes3d && mode !== "hydra" && (
           <div className="viewport-3d-controls">

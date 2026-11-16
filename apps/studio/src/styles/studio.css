@@ -1738,10 +1738,72 @@ h1 {
   gap: 3px;
 }
 .graph-select-tools .button.is-active,
-.graph-select-tools .icon-button.is-active {
+.graph-select-tools .icon-button.is-active,
+.graph-add .preset-pill.is-active {
   background: var(--accent);
   color: var(--accent-text);
   border-color: var(--accent);
+}
+
+/* Blender-style Backdrop Node Graph over 2D & 3D Viewport */
+.graph-panel.is-backdrop {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  background: transparent;
+  border: 0;
+  pointer-events: auto;
+}
+.graph-panel.is-backdrop.is-panel-hidden {
+  display: none !important;
+}
+.graph-panel.is-backdrop .rete-canvas {
+  background: transparent;
+  background-image: none;
+}
+.graph-panel.is-backdrop .panel-heading {
+  align-self: center;
+  flex: 0 0 auto;
+  height: 30px;
+  min-height: 30px;
+  margin-top: 8px;
+  padding: 0 8px 0 10px;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(18, 18, 22, 0.78);
+  backdrop-filter: blur(8px);
+  z-index: 25;
+}
+.graph-panel.is-backdrop .graph-footer {
+  align-self: center;
+  flex: 0 0 auto;
+  height: 30px;
+  min-height: 30px;
+  margin-bottom: 8px;
+  padding: 0 8px 0 10px;
+  gap: 12px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(18, 18, 22, 0.78);
+  backdrop-filter: blur(8px);
+  z-index: 25;
+}
+.graph-panel.is-backdrop .rete-node {
+  background: rgba(26, 26, 32, 0.84);
+  backdrop-filter: blur(8px);
+  border-color: rgba(255, 255, 255, 0.16);
+}
+.graph-panel.is-backdrop.is-pass-through,
+.graph-panel.is-backdrop.is-pass-through .rete-canvas {
+  pointer-events: none;
+}
+.graph-panel.is-backdrop.is-pass-through .panel-heading,
+.graph-panel.is-backdrop.is-pass-through .graph-footer,
+.graph-panel.is-backdrop.is-pass-through .node-palette,
+.graph-panel.is-backdrop.is-pass-through .rete-node,
+.graph-panel.is-backdrop.is-pass-through .rete-socket {
+  pointer-events: auto;
 }
 .rete-socket-number {
   background: #cf8acc;
@@ -2198,7 +2260,7 @@ h1 {
     height: 620px;
     flex-shrink: 0;
   }
-  .graph-panel {
+  .graph-panel:not(.is-backdrop) {
     order: 2;
     height: 420px;
   }

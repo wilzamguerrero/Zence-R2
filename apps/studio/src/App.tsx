@@ -125,6 +125,7 @@ export function App() {
   const [panels, setPanels] = useState<PanelVisibility>(loadPanels);
   const [codeOverlay, setCodeOverlay] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [paletteSignal, setPaletteSignal] = useState(0);
   const [splits, setSplits] = useState(defaultSplits);
   const [activeCue, setActiveCue] = useState<string>(defaultCues[0].id);
   const input = useRef<HTMLInputElement>(null);
@@ -165,6 +166,18 @@ export function App() {
   const setBlackout = live.setBlackout;
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Tab" && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        const targetEl = event.target instanceof Element ? event.target : null;
+        if (
+          !targetEl ||
+          !targetEl.closest("input, textarea, select, [contenteditable='true'], .cm-editor, .graph-panel")
+        ) {
+          event.preventDefault();
+          setPanels((current) => ({ ...current, viewport: true, graph: true }));
+          setPaletteSignal((s) => s + 1);
+          return;
+        }
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setPaletteOpen((open) => !open);
@@ -205,7 +218,13 @@ export function App() {
   }, [setBlackout]);
 
   function togglePanel(id: PanelId) {
-    setPanels((current) => ({ ...current, [id]: !current[id] }));
+    setPanels((current) => {
+      const next = !current[id];
+      if (id === "graph" && next) {
+        return { ...current, graph: true, viewport: true };
+      }
+      return { ...current, [id]: next };
+    });
   }
 
   function applyPresetLayout(preset: "studio" | "live" | "hydra" | "stage") {
@@ -225,25 +244,17 @@ export function App() {
     }
   }
 
-  function startHorizontalResize(side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) {
+  function startHorizontalResize(_side: "left" | "right", event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const startX = event.clientX;
-    const initialGraph = splits.graphWidth;
     const initialInspector = splits.inspectorWidth;
     function onMove(moveEvent: PointerEvent) {
       const dx = moveEvent.clientX - startX;
       const maxSide = Math.max(240, (workspaceRef.current?.clientWidth ?? 1200) * 0.45);
-      if (side === "left") {
-        setSplits((s) => ({
-          ...s,
-          graphWidth: Math.round(Math.max(210, Math.min(maxSide, initialGraph + dx))),
-        }));
-      } else {
-        setSplits((s) => ({
-          ...s,
-          inspectorWidth: Math.round(Math.max(220, Math.min(maxSide, initialInspector - dx))),
-        }));
-      }
+      setSplits((s) => ({
+        ...s,
+        inspectorWidth: Math.round(Math.max(220, Math.min(maxSide, initialInspector - dx))),
+      }));
     }
     function onUp() {
       window.removeEventListener("pointermove", onMove);
@@ -593,21 +604,16 @@ export function App() {
   );
 
   const showCenter = panels.viewport || panels.code;
-  const hasLeftSplitter = panels.graph && (showCenter || panels.inspector);
   const hasRightSplitter = panels.inspector && showCenter;
   const hasCenterSplitter = panels.viewport && panels.code;
 
   const visibleColumns: string[] = [];
-  if (panels.graph) {
-    visibleColumns.push(showCenter || panels.inspector ? `${splits.graphWidth}px` : "1fr");
-  }
-  if (hasLeftSplitter) visibleColumns.push("5px");
   if (showCenter) visibleColumns.push("minmax(280px, 1fr)");
   if (hasRightSplitter) visibleColumns.push("5px");
   if (panels.inspector) {
-    visibleColumns.push(panels.graph || showCenter ? `${splits.inspectorWidth}px` : "1fr");
+    visibleColumns.push(showCenter ? `${splits.inspectorWidth}px` : "1fr");
   }
-  const anyVisible = panels.graph || showCenter || panels.inspector;
+  const anyVisible = showCenter || panels.inspector;
 
   const centerRows = hasCenterSplitter
     ? `${splits.viewportRatio}fr 5px ${1 - splits.viewportRatio}fr`
@@ -783,45 +789,6 @@ export function App() {
             : { gridTemplateColumns: "1fr" }
         }
       >
-        <Graph
-          project={project}
-          positions={design.positions}
-          nodeMeta={design.nodeMeta}
-          values={liveValues}
-          selected={selected}
-          hidden={!panels.graph}
-          onSelect={setSelected}
-          onChangeNode={changeNode}
-          onMove={(id, point) =>
-            setDesign((current) => ({
-              ...current,
-              positions: { ...current.positions, [id]: point },
-            }))
-          }
-          onConnectEdge={connectEdge}
-          onRemoveEdge={removeEdge}
-          onAdd={add}
-          onAddHydraChain={addHydraStarterChain}
-          onDelete={remove}
-          onLayout={() =>
-            setDesign((current) => ({
-              ...current,
-              positions: autoLayout(current.project.nodes, current.project.edges),
-            }))
-          }
-        />
-
-        {hasLeftSplitter && (
-          <div
-            className="splitter splitter-v"
-            role="separator"
-            aria-orientation="vertical"
-            title="Arrastra para redimensionar · doble clic restablece"
-            onPointerDown={(e) => startHorizontalResize("left", e)}
-            onDoubleClick={() => setSplits((s) => ({ ...s, graphWidth: defaultSplits.graphWidth }))}
-          />
-        )}
-
         <div
           ref={centerRef}
           className={`center-stack ${showCenter ? "" : "is-panel-hidden"}`}
@@ -841,6 +808,40 @@ export function App() {
             blackout={live.blackout}
             codeOverlay={codeOverlay}
             onToggleCodeOverlay={() => setCodeOverlay((v) => !v)}
+            graphVisible={panels.graph}
+            onToggleGraph={() => togglePanel("graph")}
+            graphSlot={
+              <Graph
+                backdrop
+                project={project}
+                positions={design.positions}
+                nodeMeta={design.nodeMeta}
+                values={liveValues}
+                selected={selected}
+                hidden={!panels.graph}
+                openPaletteSignal={paletteSignal}
+                onCloseBackdrop={() => togglePanel("graph")}
+                onSelect={setSelected}
+                onChangeNode={changeNode}
+                onMove={(id, point) =>
+                  setDesign((current) => ({
+                    ...current,
+                    positions: { ...current.positions, [id]: point },
+                  }))
+                }
+                onConnectEdge={connectEdge}
+                onRemoveEdge={removeEdge}
+                onAdd={add}
+                onAddHydraChain={addHydraStarterChain}
+                onDelete={remove}
+                onLayout={() =>
+                  setDesign((current) => ({
+                    ...current,
+                    positions: autoLayout(current.project.nodes, current.project.edges),
+                  }))
+                }
+              />
+            }
             microphone={live.microphone}
             audioLevels={live.audioLevels}
             onCapturePng={live.capturePng}

@@ -382,6 +382,9 @@ type GraphProps = {
   values: Record<string, number>;
   selected: string;
   hidden?: boolean;
+  backdrop?: boolean;
+  openPaletteSignal?: number;
+  onCloseBackdrop?: () => void;
   onSelect: (id: string) => void;
   onChangeNode: (node: Node) => void;
   onMove: (id: string, position: Position) => void;
@@ -400,6 +403,9 @@ export function Graph({
   values,
   selected,
   hidden,
+  backdrop,
+  openPaletteSignal,
+  onCloseBackdrop,
   onSelect,
   onChangeNode,
   onMove,
@@ -424,6 +430,7 @@ export function Graph({
   } | null>(null);
   const [selectMode, setSelectMode] = useState<"pan" | "marquee" | "lasso">("pan");
   const [hitMode, setHitMode] = useState<"rect" | "center">("rect");
+  const [passThrough, setPassThrough] = useState(false);
   const [selectedIds, setSelectedIds] = useState<string[]>(selected ? [selected] : []);
   const [marqueeShape, setMarqueeShape] = useState<{
     kind: "marquee" | "lasso";
@@ -887,6 +894,12 @@ export function Graph({
   }, [hidden]);
 
   useEffect(() => {
+    if (openPaletteSignal && openPaletteSignal > 0) {
+      setShowAdd((open) => !open);
+    }
+  }, [openPaletteSignal]);
+
+  useEffect(() => {
     if (showAdd) {
       setQuery("");
       setPaletteIndex(0);
@@ -910,13 +923,14 @@ export function Graph({
 
   return (
     <section
-      className={`panel graph-panel ${hidden ? "is-panel-hidden" : ""}`}
+      className={`panel graph-panel ${backdrop ? "is-backdrop" : ""} ${backdrop && passThrough ? "is-pass-through" : ""} ${hidden ? "is-panel-hidden" : ""}`}
       aria-label="Grafo de nodos Rete"
       tabIndex={0}
       onKeyDown={(event) => {
         if (event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement) return;
         if (event.key === "Tab") {
           event.preventDefault();
+          event.stopPropagation();
           setShowAdd((open) => !open);
         } else if (event.key === "Escape") {
           setShowAdd(false);
@@ -936,8 +950,18 @@ export function Graph({
       }}
     >
       <div className="panel-heading">
-        <h2><Workflow size={14} /> Grafo Rete</h2>
+        <h2><Workflow size={14} /> {backdrop ? "Backdrop Nodos" : "Grafo Rete"}</h2>
         <div className="graph-add">
+          {backdrop && (
+            <button
+              type="button"
+              className={`preset-pill ${passThrough ? "is-active" : ""}`}
+              title="Al activar, el fondo vacío deja rotar/interactuar con el visor detrás mientras los nodos siguen activos"
+              onClick={() => setPassThrough((v) => !v)}
+            >
+              {passThrough ? "Fondo: Visor" : "Fondo: Grafo"}
+            </button>
+          )}
           {onAddHydraChain && (
             <button
               type="button"
@@ -958,6 +982,16 @@ export function Graph({
           >
             <Plus size={15} />
           </button>
+          {backdrop && onCloseBackdrop && (
+            <button
+              type="button"
+              className="preset-pill"
+              title="Ocultar grafo sobre visor (Alt+1)"
+              onClick={onCloseBackdrop}
+            >
+              Ocultar
+            </button>
+          )}
           {showAdd && (
             <div className="node-palette" role="dialog" aria-label="Buscar operador">
               <div className="palette-search">
