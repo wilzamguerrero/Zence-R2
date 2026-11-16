@@ -239,13 +239,29 @@ export function App() {
       <header className="topbar">
         <div className="brand">
           <span className="brand-symbol" aria-hidden="true">
-            <Activity size={23} strokeWidth={2.35} />
+            <Activity size={17} strokeWidth={2.35} />
           </span>
           <span className="brand-word">
             zence<span> / </span>R2
           </span>
         </div>
-        <div className="topbar-center">Estudio audiovisual</div>
+        <div className="topbar-project">
+          <div className="project-title">
+            <span className="title-rule" aria-hidden="true" />
+            <h1>{design.title}</h1>
+          </div>
+          <div className="project-status" data-error={!!graphError}>
+            {graphError ? (
+              <>
+                <AlertCircle size={14} /> Grafo pendiente
+              </>
+            ) : (
+              <>
+                <span className="status-dot" /> Grafo válido
+              </>
+            )}
+          </div>
+        </div>
         <div className="topbar-actions">
           <input
             type="file"
@@ -259,7 +275,7 @@ export function App() {
             className="button button-open"
             onClick={() => input.current?.click()}
           >
-            <FolderOpen size={16} /> Abrir
+            <FolderOpen size={15} /> Abrir
           </button>
           <button
             type="button"
@@ -275,28 +291,10 @@ export function App() {
               setNotice("Proyecto descargado.");
             }}
           >
-            <Download size={16} /> Guardar
+            <Download size={15} /> Guardar
           </button>
         </div>
       </header>
-
-      <div className="project-bar">
-        <div className="project-title">
-          <span className="title-rule" aria-hidden="true" />
-          <h1>{design.title}</h1>
-        </div>
-        <div className="project-status" data-error={!!graphError}>
-          {graphError ? (
-            <>
-              <AlertCircle size={15} /> Grafo pendiente
-            </>
-          ) : (
-            <>
-              <span className="status-dot" /> Grafo válido
-            </>
-          )}
-        </div>
-      </div>
 
       <main className="workspace">
         <Graph

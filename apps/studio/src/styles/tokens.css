@@ -38,8 +38,8 @@
   --viewport-orbit: #ae68ad;
 
   --radius: 0px;
-  --workspace-gap: 12px;
-  --graph-width: minmax(310px, 0.84fr);
-  --view-width: minmax(340px, 1.4fr);
-  --inspector-width: minmax(214px, 240px);
+  --workspace-gap: 6px;
+  --graph-width: minmax(250px, 0.72fr);
+  --view-width: minmax(410px, 1.7fr);
+  --inspector-width: 244px;
 }
