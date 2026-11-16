@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import QRCode from "qrcode";
 import type { Node } from "../../../packages/engine/project.ts";
 import { frameDocument } from "./hydraFrame.ts";
+import { nodeMediaHub } from "./nodeMediaHub.ts";
 import type { Playback } from "./playback.ts";
 import { sharedMocap } from "./mocap/mocapRuntime.ts";
 
@@ -212,6 +213,7 @@ export function useLiveStudio(
   useEffect(() => {
     let id: number;
     let lastSync = 0;
+    const slotBusy = [false, false, false, false];
     function draw(now: number) {
       if (ready && now - lastSync > 32) {
         lastSync = now;
@@ -238,6 +240,24 @@ export function useLiveStudio(
             __rightSpread: sharedMocap.state.rightHand.spread,
           },
         });
+        for (let slot = 0; slot < 4; slot++) {
+          if (slotBusy[slot]) continue;
+          const entry = nodeMediaHub.getActiveBySlot(slot);
+          if (!entry) continue;
+          slotBusy[slot] = true;
+          createImageBitmap(entry.canvas)
+            .then((bmp) => {
+              frame.current?.contentWindow?.postMessage(
+                { type: "sourceFrame", slot, bitmap: bmp },
+                "*",
+                [bmp],
+              );
+            })
+            .catch(() => {})
+            .finally(() => {
+              slotBusy[slot] = false;
+            });
+        }
       }
       const capture = recordCanvas.current;
       if (capture) {

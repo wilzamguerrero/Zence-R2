@@ -3,14 +3,21 @@ import {
   Box,
   BoxSelect,
   Calculator,
+  Camera,
   CircleDot,
   Crosshair,
   Disc,
+  FileCode2,
+  FileUp,
+  Grid2X2,
   Hand,
+  ImagePlus,
   Lasso,
   Layers,
   LayoutGrid,
+  Lightbulb,
   Maximize,
+  Mic,
   Minus,
   Move,
   Palette,
@@ -20,8 +27,11 @@ import {
   RotateCw,
   Search,
   Sparkles,
+  Table,
   Timer,
+  Type,
   User,
+  Video,
   Waves,
   Workflow,
 } from "lucide-react";
@@ -35,6 +45,7 @@ import { Presets as ReactPresets, ReactPlugin } from "rete-react-plugin";
 import type { ReactArea2D, RenderEmit } from "rete-react-plugin";
 const { RefSocket, useConnection } = ReactPresets.classic;
 import type { Edge, Node, PortType, Project } from "../../../../packages/engine/project.ts";
+import { nodeMediaHub } from "../nodeMediaHub.ts";
 import { nodeTypes, positionFor } from "../studio.ts";
 import type { Layout, NodeMeta, Position } from "../studio.ts";
 
@@ -45,6 +56,10 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "signal.smooth": Waves,
   "signal.mapRange": Calculator,
   "signal.math": Calculator,
+  "chop.noise": Activity,
+  "chop.audioIn": Mic,
+  "chop.speed": Timer,
+  "chop.analyze": Activity,
   "hydra.osc": Waves,
   "hydra.noise": Sparkles,
   "hydra.shape": Disc,
@@ -53,6 +68,33 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "hydra.modulate": Activity,
   "hydra.color": Palette,
   "hydra.out": Box,
+  "top.movieFileIn": ImagePlus,
+  "top.videoDeviceIn": Video,
+  "top.ramp": Palette,
+  "top.level": Sparkles,
+  "top.blur": Disc,
+  "top.transform": Move,
+  "top.composite": Layers,
+  "top.displace": Waves,
+  "top.text": Type,
+  "top.chopTo": Activity,
+  "sop.sphere": Disc,
+  "sop.box": Box,
+  "sop.torus": CircleDot,
+  "sop.grid": Grid2X2,
+  "sop.fileIn": FileUp,
+  "sop.transform": Move,
+  "sop.noise": Sparkles,
+  "sop.toPop": Sparkles,
+  "mat.phong": Palette,
+  "mat.pbr": Palette,
+  "mat.constant": Palette,
+  "dat.text": FileCode2,
+  "dat.table": Table,
+  "dat.evaluate": Calculator,
+  "comp.geo": Box,
+  "comp.light": Lightbulb,
+  "comp.camera": Camera,
   "mocap.body": PersonStanding,
   "mocap.hands": Hand,
   "scene.skeletonRig": User,
@@ -63,12 +105,13 @@ const icons: Record<Node["kind"], typeof Activity> = {
 };
 
 const categoryColors: Record<string, string> = {
-  Control: "#ae68ad",
-  Anim: "#58c4dc",
-  Math: "#6ed491",
-  Hydra: "#f0b35a",
-  Mocap: "#68d8d6",
-  Scene: "#cfb7cf",
+  TOP: "#9b72cf",
+  CHOP: "#6ed491",
+  SOP: "#58c4dc",
+  POP: "#7aa2f7",
+  MAT: "#f0b35a",
+  DAT: "#cf8acc",
+  COMP: "#d0cfd6",
 };
 
 const sockets: Record<PortType, ClassicPreset.Socket> = {
@@ -76,6 +119,9 @@ const sockets: Record<PortType, ClassicPreset.Socket> = {
   points: new ClassicPreset.Socket("points"),
   hydra: new ClassicPreset.Socket("hydra"),
   skeleton: new ClassicPreset.Socket("skeleton"),
+  geometry: new ClassicPreset.Socket("geometry"),
+  material: new ClassicPreset.Socket("material"),
+  data: new ClassicPreset.Socket("data"),
 };
 
 class ZenceReteNode extends ClassicPreset.Node {
@@ -148,6 +194,68 @@ function nodeSummary(node: Node): string {
       return `rgb(${node.r}, ${node.g}, ${node.b})`;
     case "hydra.out":
       return `buffer ${node.buffer}`;
+    case "chop.noise":
+      return `seed ${node.seed} · ${node.rate} Hz`;
+    case "chop.audioIn":
+      return `mic ${node.band} ×${node.gain}`;
+    case "chop.speed":
+      return `gain ×${node.gain}`;
+    case "chop.analyze":
+      return `bpm ${node.mode}`;
+    case "top.movieFileIn":
+      return `slot s${node.sourceSlot} · ${node.fit}`;
+    case "top.videoDeviceIn":
+      return `${node.deviceMode} → s${node.sourceSlot}`;
+    case "top.ramp":
+      return `${node.rampType} · vel ${node.speed}`;
+    case "top.level":
+      return `ctr ${node.contrast} · sat ${node.saturate}`;
+    case "top.blur":
+      return `size ${node.size}`;
+    case "top.transform":
+      return `sc ${node.scale} · rep ${node.repeat}`;
+    case "top.composite":
+      return `${node.op}(${node.amount})`;
+    case "top.displace":
+      return `peso ${node.weight}`;
+    case "top.text":
+      return `"${node.text.slice(0, 12)}" → s${node.sourceSlot}`;
+    case "top.chopTo":
+      return `freq ${node.freq}`;
+    case "sop.sphere":
+      return `r ${node.radius} · seg ${node.segments}`;
+    case "sop.box":
+      return `${node.width}×${node.height}×${node.depth}`;
+    case "sop.torus":
+      return `r ${node.radius} · t ${node.tube}`;
+    case "sop.grid":
+      return `${node.size}m · div ${node.divisions}`;
+    case "sop.fileIn":
+      return node.fileName || "FBX / GLB / OBJ";
+    case "sop.transform":
+      return `sc ${node.scale} · ry ${node.ry}`;
+    case "sop.noise":
+      return `amp ${node.amplitude} · f ${node.freq}`;
+    case "sop.toPop":
+      return `${node.count} pts`;
+    case "mat.phong":
+      return `phong ${node.wireframe ? "wire" : "fill"}`;
+    case "mat.pbr":
+      return `m ${node.metalness} · r ${node.roughness}`;
+    case "mat.constant":
+      return `const ${node.wireframe ? "wire" : "solid"}`;
+    case "dat.text":
+      return `${node.text.length} chars`;
+    case "dat.table":
+      return `celda [${node.row},${node.col}]`;
+    case "dat.evaluate":
+      return node.expr.slice(0, 18);
+    case "comp.geo":
+      return node.visible ? `spin ${node.autoSpin}` : "oculto";
+    case "comp.light":
+      return `int ${node.intensity}`;
+    case "comp.camera":
+      return `fov ${node.fov}°`;
     case "mocap.body":
       return node.mirror ? `espejo · ${node.scale}×` : `directo · ${node.scale}×`;
     case "mocap.hands":
@@ -260,6 +368,87 @@ function InlineRangeSlider({
   );
 }
 
+function NodeMediaInline({ node, onChange }: { node: Node; onChange?: (n: Node) => void }) {
+  const [, setVersion] = useState(0);
+  useEffect(() => nodeMediaHub.subscribe(() => setVersion((v) => v + 1)), []);
+
+  const stop = (e: React.SyntheticEvent) => e.stopPropagation();
+
+  if (node.kind === "top.movieFileIn") {
+    const entry = nodeMediaHub.getEntry(node.id);
+    return (
+      <div className="rete-inline-media" onPointerDown={stop} onMouseDown={stop}>
+        <label className="rete-inline-btn">
+          {entry ? entry.label.slice(0, 16) : "Cargar Imagen / Video"}
+          <input
+            type="file"
+            accept="image/*,video/*"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) void nodeMediaHub.loadMediaFile(node.id, file, node.sourceSlot);
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+    );
+  }
+  if (node.kind === "top.videoDeviceIn") {
+    const entry = nodeMediaHub.getEntry(node.id);
+    return (
+      <div className="rete-inline-media" onPointerDown={stop} onMouseDown={stop}>
+        <button
+          type="button"
+          className={`rete-inline-btn ${entry?.active ? "is-active" : ""}`}
+          onClick={() => {
+            if (entry?.active) nodeMediaHub.stopMedia(node.id);
+            else void nodeMediaHub.startDevice(node.id, node.deviceMode, node.sourceSlot);
+          }}
+        >
+          {entry?.active ? "Detener señal" : node.deviceMode === "camera" ? "Activar Cámara" : "Capturar Pantalla"}
+        </button>
+      </div>
+    );
+  }
+  if (node.kind === "sop.fileIn") {
+    return (
+      <div className="rete-inline-media" onPointerDown={stop} onMouseDown={stop}>
+        <label className="rete-inline-btn">
+          {node.fileName ? node.fileName.slice(0, 16) : "Cargar FBX / GLB"}
+          <input
+            type="file"
+            accept=".fbx,.glb,.gltf,.obj"
+            hidden
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (file) {
+                window.dispatchEvent(new CustomEvent("zence:load-model", { detail: file }));
+                onChange?.({ ...node, fileName: file.name });
+              }
+              e.target.value = "";
+            }}
+          />
+        </label>
+      </div>
+    );
+  }
+  if (node.kind === "chop.audioIn") {
+    return (
+      <div className="rete-inline-media" onPointerDown={stop} onMouseDown={stop}>
+        <button
+          type="button"
+          className="rete-inline-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent("zence:toggle-mic"))}
+        >
+          Activar / Pausar Mic
+        </button>
+      </div>
+    );
+  }
+  return null;
+}
+
 function ReteNodeCard({
   data,
   emit,
@@ -294,6 +483,7 @@ function ReteNodeCard({
           <small>{spec.namespace} · {node.id}</small>
           <strong>{spec.name}</strong>
         </div>
+        <span className="td-family-tag">{spec.category}</span>
       </div>
 
       <div className="rete-node-sub">{nodeSummary(node)}</div>
@@ -307,6 +497,8 @@ function ReteNodeCard({
           onChange={(next) => data.onChangeValue?.({ ...node, initial: next })}
         />
       )}
+
+      <NodeMediaInline node={node} onChange={data.onChangeValue} />
 
       <div className="rete-ports">
         {inputs.map(([key, input]) =>
@@ -503,7 +695,7 @@ export function Graph({
   const [categoryFilter, setCategoryFilter] = useState<string>("Todas");
   const [paletteIndex, setPaletteIndex] = useState(0);
 
-  const categories = ["Todas", "Control", "Anim", "Math", "Hydra", "Mocap", "Scene"];
+  const categories = ["Todas", "TOP", "CHOP", "SOP", "POP", "MAT", "DAT", "COMP"];
   const kinds = (Object.keys(nodeTypes) as Node["kind"][]).filter((kind) => {
     const meta = nodeTypes[kind];
     if (categoryFilter !== "Todas" && meta.category !== categoryFilter) return false;

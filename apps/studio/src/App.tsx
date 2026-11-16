@@ -227,6 +227,14 @@ export function App() {
     });
   }
 
+  const toggleMicRef = useRef(live.toggleMicrophone);
+  toggleMicRef.current = live.toggleMicrophone;
+  useEffect(() => {
+    const onToggleMic = () => void toggleMicRef.current();
+    window.addEventListener("zence:toggle-mic", onToggleMic);
+    return () => window.removeEventListener("zence:toggle-mic", onToggleMic);
+  }, []);
+
   function applyPresetLayout(preset: "studio" | "live" | "hydra" | "stage") {
     if (preset === "studio") {
       setPanels({ graph: true, viewport: true, code: true, inspector: true });

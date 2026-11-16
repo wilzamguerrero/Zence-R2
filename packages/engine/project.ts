@@ -1,12 +1,24 @@
 import { fixedStepSeconds } from "./clock.ts";
-
-type Point3 = { x: number; y: number; z: number };
+import {
+  evaluateSafeExpr,
+  readTableCell,
+  sampleNoiseChop,
+  sampleSopSurfacePoint,
+  type Point3,
+  type SopShapeSpec,
+} from "./operators.ts";
 
 export type LfoWave = "sine" | "triangle" | "saw" | "square";
 export type MathOp = "add" | "mul" | "clamp" | "abs" | "sin";
 export type HydraBuffer = "o0" | "o1" | "o2" | "o3";
 export type SkeletonZone = "all" | "hands" | "arms" | "spine" | "head" | "legs";
 export type SkeletonEmitMode = "attach" | "aura" | "trail";
+export type TopFitMode = "contain" | "cover" | "stretch";
+export type VideoDeviceMode = "camera" | "screen";
+export type RampType = "linear" | "radial" | "circular";
+export type CompositeOp = "blend" | "add" | "diff" | "mult";
+export type AudioBand = "bass" | "mid" | "high" | "audio";
+export type AnalyzeMode = "beat" | "bpmNorm" | "pulse";
 
 export type Node =
   | { id: string; kind: "control.number"; initial: number; min: number; max: number }
@@ -15,6 +27,10 @@ export type Node =
   | { id: string; kind: "signal.smooth"; smoothing: number }
   | { id: string; kind: "signal.mapRange"; inMin: number; inMax: number; outMin: number; outMax: number; clamp: boolean }
   | { id: string; kind: "signal.math"; op: MathOp; factor: number; bias: number }
+  | { id: string; kind: "chop.noise"; seed: number; rate: number; amplitude: number; offset: number }
+  | { id: string; kind: "chop.audioIn"; band: AudioBand; gain: number }
+  | { id: string; kind: "chop.speed"; gain: number }
+  | { id: string; kind: "chop.analyze"; mode: AnalyzeMode }
   | { id: string; kind: "hydra.osc"; freq: number; sync: number; offset: number }
   | { id: string; kind: "hydra.noise"; scale: number; offset: number }
   | { id: string; kind: "hydra.shape"; sides: number; radius: number; smoothing: number }
@@ -23,6 +39,33 @@ export type Node =
   | { id: string; kind: "hydra.modulate"; amount: number }
   | { id: string; kind: "hydra.color"; r: number; g: number; b: number }
   | { id: string; kind: "hydra.out"; buffer: HydraBuffer }
+  | { id: string; kind: "top.movieFileIn"; sourceSlot: 0 | 1 | 2 | 3; fit: TopFitMode; speed: number; loop: boolean }
+  | { id: string; kind: "top.videoDeviceIn"; deviceMode: VideoDeviceMode; sourceSlot: 0 | 1 | 2 | 3; mirror: boolean }
+  | { id: string; kind: "top.ramp"; rampType: RampType; speed: number; r1: number; g1: number; b1: number; r2: number; g2: number; b2: number }
+  | { id: string; kind: "top.level"; brightness: number; contrast: number; saturate: number; invert: number }
+  | { id: string; kind: "top.blur"; size: number }
+  | { id: string; kind: "top.transform"; tx: number; ty: number; scale: number; rotate: number; repeat: number }
+  | { id: string; kind: "top.composite"; op: CompositeOp; amount: number }
+  | { id: string; kind: "top.displace"; weight: number }
+  | { id: string; kind: "top.text"; text: string; fontSize: number; color: string; sourceSlot: 0 | 1 | 2 | 3 }
+  | { id: string; kind: "top.chopTo"; freq: number }
+  | { id: string; kind: "sop.sphere"; radius: number; segments: number }
+  | { id: string; kind: "sop.box"; width: number; height: number; depth: number; segments: number }
+  | { id: string; kind: "sop.torus"; radius: number; tube: number; segments: number }
+  | { id: string; kind: "sop.grid"; size: number; divisions: number }
+  | { id: string; kind: "sop.fileIn"; scale: number; fileName: string }
+  | { id: string; kind: "sop.transform"; tx: number; ty: number; tz: number; rx: number; ry: number; rz: number; scale: number }
+  | { id: string; kind: "sop.noise"; amplitude: number; freq: number; speed: number }
+  | { id: string; kind: "sop.toPop"; seed: number; count: number; spread: number }
+  | { id: string; kind: "mat.phong"; color: string; specular: string; shininess: number; wireframe: boolean; opacity: number }
+  | { id: string; kind: "mat.pbr"; color: string; metalness: number; roughness: number; emissiveIntensity: number; wireframe: boolean }
+  | { id: string; kind: "mat.constant"; color: string; opacity: number; wireframe: boolean }
+  | { id: string; kind: "dat.text"; text: string }
+  | { id: string; kind: "dat.table"; csv: string; row: number; col: number }
+  | { id: string; kind: "dat.evaluate"; expr: string }
+  | { id: string; kind: "comp.geo"; visible: boolean; autoSpin: number }
+  | { id: string; kind: "comp.light"; color: string; intensity: number; x: number; y: number; z: number }
+  | { id: string; kind: "comp.camera"; fov: number; autoRotate: boolean; speed: number }
   | { id: string; kind: "mocap.body"; mirror: boolean; smoothing: number; scale: number }
   | { id: string; kind: "mocap.hands"; smoothing: number; fingers: boolean; spreadGain: number }
   | {
@@ -59,7 +102,14 @@ type SkeletonParticles = {
   segRatio: number[];
   phases: number[];
 };
-export type PortType = "number" | "points" | "hydra" | "skeleton";
+export type PortType =
+  | "number"
+  | "points"
+  | "hydra"
+  | "skeleton"
+  | "geometry"
+  | "material"
+  | "data";
 type InputSpec = PortType | { type: PortType; optional?: boolean };
 type Ports = { inputs: Record<string, InputSpec>; outputs: Record<string, PortType> };
 type NodePlan = { node: Node; sources: Map<string, string> };
@@ -73,11 +123,55 @@ export interface ExternalMocapInput {
   segmentsByZone?: Partial<Record<SkeletonZone, BoneSegment3[]>>;
 }
 
+export interface RenderedMaterialSpec {
+  id: string;
+  kind: "phong" | "pbr" | "constant";
+  color: string;
+  specular: string;
+  shininess: number;
+  metalness: number;
+  roughness: number;
+  emissiveIntensity: number;
+  opacity: number;
+  wireframe: boolean;
+  textureNodeId: string | null;
+  textureSlot: number | null;
+}
+
+export interface RenderedGeoComp {
+  id: string;
+  visible: boolean;
+  autoSpin: number;
+  scale: number;
+  shape: SopShapeSpec;
+  material: RenderedMaterialSpec | null;
+}
+
+export interface SceneDescriptor {
+  geos: RenderedGeoComp[];
+  light: { color: string; intensity: number; x: number; y: number; z: number } | null;
+  camera: { fov: number; autoRotate: boolean; speed: number } | null;
+  mediaNodes: Array<{
+    id: string;
+    kind: "top.movieFileIn" | "top.videoDeviceIn" | "top.text";
+    slot: number;
+    text?: string;
+    fontSize?: number;
+    color?: string;
+  }>;
+}
+
 const lfoWaves: readonly LfoWave[] = ["sine", "triangle", "saw", "square"];
 const mathOps: readonly MathOp[] = ["add", "mul", "clamp", "abs", "sin"];
 const hydraBuffers: readonly HydraBuffer[] = ["o0", "o1", "o2", "o3"];
 const skeletonZones: readonly SkeletonZone[] = ["all", "hands", "arms", "spine", "head", "legs"];
 const skeletonEmitModes: readonly SkeletonEmitMode[] = ["attach", "aura", "trail"];
+const topFits: readonly TopFitMode[] = ["contain", "cover", "stretch"];
+const videoDevices: readonly VideoDeviceMode[] = ["camera", "screen"];
+const rampTypes: readonly RampType[] = ["linear", "radial", "circular"];
+const compositeOps: readonly CompositeOp[] = ["blend", "add", "diff", "mult"];
+const audioBands: readonly AudioBand[] = ["bass", "mid", "high", "audio"];
+const analyzeModes: readonly AnalyzeMode[] = ["beat", "bpmNorm", "pulse"];
 
 const ports: Record<Node["kind"], Ports> = {
   "control.number": { inputs: {}, outputs: { value: "number" } },
@@ -86,6 +180,10 @@ const ports: Record<Node["kind"], Ports> = {
   "signal.smooth": { inputs: { in: "number" }, outputs: { value: "number" } },
   "signal.mapRange": { inputs: { in: "number" }, outputs: { value: "number" } },
   "signal.math": { inputs: { in: "number" }, outputs: { value: "number" } },
+  "chop.noise": { inputs: {}, outputs: { value: "number" } },
+  "chop.audioIn": { inputs: {}, outputs: { value: "number" } },
+  "chop.speed": { inputs: { in: "number" }, outputs: { value: "number" } },
+  "chop.analyze": { inputs: {}, outputs: { value: "number" } },
   "hydra.osc": { inputs: { mod: { type: "number", optional: true } }, outputs: { tex: "hydra" } },
   "hydra.noise": { inputs: {}, outputs: { tex: "hydra" } },
   "hydra.shape": { inputs: { mod: { type: "number", optional: true } }, outputs: { tex: "hydra" } },
@@ -101,6 +199,46 @@ const ports: Record<Node["kind"], Ports> = {
   },
   "hydra.color": { inputs: { tex: "hydra" }, outputs: { tex: "hydra" } },
   "hydra.out": { inputs: { tex: "hydra" }, outputs: {} },
+  "top.movieFileIn": { inputs: {}, outputs: { tex: "hydra" } },
+  "top.videoDeviceIn": { inputs: {}, outputs: { tex: "hydra" } },
+  "top.ramp": { inputs: { phase: { type: "number", optional: true } }, outputs: { tex: "hydra" } },
+  "top.level": { inputs: { tex: "hydra", amount: { type: "number", optional: true } }, outputs: { tex: "hydra" } },
+  "top.blur": { inputs: { tex: "hydra", amount: { type: "number", optional: true } }, outputs: { tex: "hydra" } },
+  "top.transform": { inputs: { tex: "hydra", mod: { type: "number", optional: true } }, outputs: { tex: "hydra" } },
+  "top.composite": {
+    inputs: { tex: "hydra", texB: { type: "hydra", optional: true }, amount: { type: "number", optional: true } },
+    outputs: { tex: "hydra" },
+  },
+  "top.displace": {
+    inputs: { tex: "hydra", modTex: { type: "hydra", optional: true }, mod: { type: "number", optional: true } },
+    outputs: { tex: "hydra" },
+  },
+  "top.text": { inputs: { data: { type: "data", optional: true }, mod: { type: "number", optional: true } }, outputs: { tex: "hydra" } },
+  "top.chopTo": { inputs: { in: "number" }, outputs: { tex: "hydra" } },
+  "sop.sphere": { inputs: { scale: { type: "number", optional: true } }, outputs: { geo: "geometry" } },
+  "sop.box": { inputs: { scale: { type: "number", optional: true } }, outputs: { geo: "geometry" } },
+  "sop.torus": { inputs: { scale: { type: "number", optional: true } }, outputs: { geo: "geometry" } },
+  "sop.grid": { inputs: { scale: { type: "number", optional: true } }, outputs: { geo: "geometry" } },
+  "sop.fileIn": { inputs: { scale: { type: "number", optional: true } }, outputs: { geo: "geometry" } },
+  "sop.transform": { inputs: { geo: "geometry", mod: { type: "number", optional: true } }, outputs: { geo: "geometry" } },
+  "sop.noise": { inputs: { geo: "geometry", ampMod: { type: "number", optional: true } }, outputs: { geo: "geometry" } },
+  "sop.toPop": { inputs: { geo: "geometry", intensity: { type: "number", optional: true } }, outputs: { points: "points" } },
+  "mat.phong": { inputs: { tex: { type: "hydra", optional: true } }, outputs: { mat: "material" } },
+  "mat.pbr": { inputs: { tex: { type: "hydra", optional: true } }, outputs: { mat: "material" } },
+  "mat.constant": { inputs: { tex: { type: "hydra", optional: true } }, outputs: { mat: "material" } },
+  "dat.text": { inputs: {}, outputs: { data: "data" } },
+  "dat.table": { inputs: {}, outputs: { data: "data", value: "number" } },
+  "dat.evaluate": { inputs: { in: { type: "number", optional: true }, data: { type: "data", optional: true } }, outputs: { value: "number", data: "data" } },
+  "comp.geo": {
+    inputs: {
+      geo: "geometry",
+      mat: { type: "material", optional: true },
+      scale: { type: "number", optional: true },
+    },
+    outputs: {},
+  },
+  "comp.light": { inputs: { intensityMod: { type: "number", optional: true } }, outputs: {} },
+  "comp.camera": { inputs: { fovMod: { type: "number", optional: true } }, outputs: {} },
   "mocap.body": { inputs: {}, outputs: { skeleton: "skeleton", value: "number" } },
   "mocap.hands": {
     inputs: { skeleton: { type: "skeleton", optional: true } },
@@ -254,6 +392,216 @@ function readNode(value: unknown): Node {
       }
       return { id, kind: node.kind, buffer: node.buffer as HydraBuffer };
     }
+    case "chop.noise":
+      return {
+        id,
+        kind: node.kind,
+        seed: integer(node.seed, 0, 0xffffffff),
+        rate: number(node.rate),
+        amplitude: number(node.amplitude),
+        offset: number(node.offset),
+      };
+    case "chop.audioIn":
+      return {
+        id,
+        kind: node.kind,
+        band: typeof node.band === "string" && audioBands.includes(node.band as AudioBand) ? (node.band as AudioBand) : "bass",
+        gain: number(node.gain),
+      };
+    case "chop.speed":
+      return { id, kind: node.kind, gain: number(node.gain) };
+    case "chop.analyze":
+      return {
+        id,
+        kind: node.kind,
+        mode: typeof node.mode === "string" && analyzeModes.includes(node.mode as AnalyzeMode) ? (node.mode as AnalyzeMode) : "beat",
+      };
+    case "top.movieFileIn": {
+      const slot = Math.min(3, Math.max(0, Math.round(number(node.sourceSlot ?? 0)))) as 0 | 1 | 2 | 3;
+      return {
+        id,
+        kind: node.kind,
+        sourceSlot: slot,
+        fit: typeof node.fit === "string" && topFits.includes(node.fit as TopFitMode) ? (node.fit as TopFitMode) : "cover",
+        speed: number(node.speed ?? 1),
+        loop: typeof node.loop === "boolean" ? node.loop : true,
+      };
+    }
+    case "top.videoDeviceIn": {
+      const slot = Math.min(3, Math.max(0, Math.round(number(node.sourceSlot ?? 0)))) as 0 | 1 | 2 | 3;
+      return {
+        id,
+        kind: node.kind,
+        deviceMode: typeof node.deviceMode === "string" && videoDevices.includes(node.deviceMode as VideoDeviceMode) ? (node.deviceMode as VideoDeviceMode) : "camera",
+        sourceSlot: slot,
+        mirror: typeof node.mirror === "boolean" ? node.mirror : true,
+      };
+    }
+    case "top.ramp":
+      return {
+        id,
+        kind: node.kind,
+        rampType: typeof node.rampType === "string" && rampTypes.includes(node.rampType as RampType) ? (node.rampType as RampType) : "linear",
+        speed: number(node.speed),
+        r1: number(node.r1),
+        g1: number(node.g1),
+        b1: number(node.b1),
+        r2: number(node.r2),
+        g2: number(node.g2),
+        b2: number(node.b2),
+      };
+    case "top.level":
+      return {
+        id,
+        kind: node.kind,
+        brightness: number(node.brightness),
+        contrast: number(node.contrast),
+        saturate: number(node.saturate),
+        invert: number(node.invert),
+      };
+    case "top.blur":
+      return { id, kind: node.kind, size: number(node.size) };
+    case "top.transform":
+      return {
+        id,
+        kind: node.kind,
+        tx: number(node.tx),
+        ty: number(node.ty),
+        scale: number(node.scale),
+        rotate: number(node.rotate),
+        repeat: number(node.repeat),
+      };
+    case "top.composite":
+      return {
+        id,
+        kind: node.kind,
+        op: typeof node.op === "string" && compositeOps.includes(node.op as CompositeOp) ? (node.op as CompositeOp) : "blend",
+        amount: number(node.amount),
+      };
+    case "top.displace":
+      return { id, kind: node.kind, weight: number(node.weight) };
+    case "top.text": {
+      const slot = Math.min(3, Math.max(0, Math.round(number(node.sourceSlot ?? 2)))) as 0 | 1 | 2 | 3;
+      return {
+        id,
+        kind: node.kind,
+        text: typeof node.text === "string" ? node.text : "ZENCE R2",
+        fontSize: number(node.fontSize ?? 72),
+        color: typeof node.color === "string" ? node.color : "#cf8acc",
+        sourceSlot: slot,
+      };
+    }
+    case "top.chopTo":
+      return { id, kind: node.kind, freq: number(node.freq) };
+    case "sop.sphere":
+      return { id, kind: node.kind, radius: number(node.radius), segments: integer(node.segments, 4, 64) };
+    case "sop.box":
+      return {
+        id,
+        kind: node.kind,
+        width: number(node.width),
+        height: number(node.height),
+        depth: number(node.depth),
+        segments: integer(node.segments, 1, 16),
+      };
+    case "sop.torus":
+      return { id, kind: node.kind, radius: number(node.radius), tube: number(node.tube), segments: integer(node.segments, 6, 64) };
+    case "sop.grid":
+      return { id, kind: node.kind, size: number(node.size), divisions: integer(node.divisions, 2, 64) };
+    case "sop.fileIn":
+      return {
+        id,
+        kind: node.kind,
+        scale: number(node.scale ?? 1),
+        fileName: typeof node.fileName === "string" ? node.fileName : "",
+      };
+    case "sop.transform":
+      return {
+        id,
+        kind: node.kind,
+        tx: number(node.tx),
+        ty: number(node.ty),
+        tz: number(node.tz),
+        rx: number(node.rx),
+        ry: number(node.ry),
+        rz: number(node.rz),
+        scale: number(node.scale),
+      };
+    case "sop.noise":
+      return { id, kind: node.kind, amplitude: number(node.amplitude), freq: number(node.freq), speed: number(node.speed) };
+    case "sop.toPop":
+      return {
+        id,
+        kind: node.kind,
+        seed: integer(node.seed, 0, 0xffffffff),
+        count: integer(node.count, 1, 10_000),
+        spread: number(node.spread),
+      };
+    case "mat.phong":
+      return {
+        id,
+        kind: node.kind,
+        color: typeof node.color === "string" ? node.color : "#cf8acc",
+        specular: typeof node.specular === "string" ? node.specular : "#ffffff",
+        shininess: number(node.shininess ?? 60),
+        wireframe: typeof node.wireframe === "boolean" ? node.wireframe : false,
+        opacity: number(node.opacity ?? 1),
+      };
+    case "mat.pbr":
+      return {
+        id,
+        kind: node.kind,
+        color: typeof node.color === "string" ? node.color : "#ae68ad",
+        metalness: number(node.metalness ?? 0.35),
+        roughness: number(node.roughness ?? 0.4),
+        emissiveIntensity: number(node.emissiveIntensity ?? 0.25),
+        wireframe: typeof node.wireframe === "boolean" ? node.wireframe : false,
+      };
+    case "mat.constant":
+      return {
+        id,
+        kind: node.kind,
+        color: typeof node.color === "string" ? node.color : "#f5f3f4",
+        opacity: number(node.opacity ?? 1),
+        wireframe: typeof node.wireframe === "boolean" ? node.wireframe : false,
+      };
+    case "dat.text":
+      return { id, kind: node.kind, text: typeof node.text === "string" ? node.text : "ZENCE R2\nLIVE" };
+    case "dat.table":
+      return {
+        id,
+        kind: node.kind,
+        csv: typeof node.csv === "string" ? node.csv : "freq,amp\n8,1.5\n12,2.4",
+        row: integer(node.row ?? 1, 0, 999),
+        col: integer(node.col ?? 1, 0, 99),
+      };
+    case "dat.evaluate":
+      return { id, kind: node.kind, expr: typeof node.expr === "string" ? node.expr : "abs(sin(x + t))" };
+    case "comp.geo":
+      return {
+        id,
+        kind: node.kind,
+        visible: typeof node.visible === "boolean" ? node.visible : true,
+        autoSpin: number(node.autoSpin ?? 0.4),
+      };
+    case "comp.light":
+      return {
+        id,
+        kind: node.kind,
+        color: typeof node.color === "string" ? node.color : "#ffffff",
+        intensity: number(node.intensity ?? 3),
+        x: number(node.x ?? 5),
+        y: number(node.y ?? 6),
+        z: number(node.z ?? 4),
+      };
+    case "comp.camera":
+      return {
+        id,
+        kind: node.kind,
+        fov: number(node.fov ?? 37),
+        autoRotate: typeof node.autoRotate === "boolean" ? node.autoRotate : false,
+        speed: number(node.speed ?? 1.6),
+      };
     case "mocap.body": {
       const smoothing = number(node.smoothing);
       const scale = number(node.scale);
@@ -447,6 +795,80 @@ export function compileHydraCode(project: Project): string | null {
         if (!base) return null;
         return `${base}\n  .color(${node.r}, ${node.g}, ${node.b})`;
       }
+      case "top.movieFileIn":
+        return `src(s${node.sourceSlot})`;
+      case "top.videoDeviceIn":
+        return `src(s${node.sourceSlot})`;
+      case "top.text":
+        return `src(s${node.sourceSlot})`;
+      case "top.ramp": {
+        const ph = sources?.get("phase");
+        const spd = ph ? `() => ${node.speed} + control(${JSON.stringify(ph)}) * 0.4` : String(node.speed);
+        const base =
+          node.rampType === "radial"
+            ? `shape(64, 0.45, 0.45)`
+            : node.rampType === "circular"
+              ? `osc(4, ${spd}, 1.2)`
+              : `gradient(${spd})`;
+        return `${base}\n  .color(${node.r1}, ${node.g1}, ${node.b1})`;
+      }
+      case "top.level": {
+        const tex = sources?.get("tex");
+        const base = tex ? buildChain(tex, new Set(visited)) : null;
+        if (!base) return null;
+        const mod = sources?.get("amount");
+        const br = mod ? `() => ${node.brightness} + control(${JSON.stringify(mod)}) * 0.2` : String(node.brightness);
+        let outChain = `${base}\n  .brightness(${br})\n  .contrast(${node.contrast})\n  .saturate(${node.saturate})`;
+        if (node.invert > 0.01) outChain += `\n  .invert(${node.invert})`;
+        return outChain;
+      }
+      case "top.blur": {
+        const tex = sources?.get("tex");
+        const base = tex ? buildChain(tex, new Set(visited)) : null;
+        if (!base) return null;
+        const px = Math.max(8, Math.round(256 / Math.max(1, node.size * 12)));
+        return `${base}\n  .pixelate(${px}, ${px})`;
+      }
+      case "top.transform": {
+        const tex = sources?.get("tex");
+        const base = tex ? buildChain(tex, new Set(visited)) : null;
+        if (!base) return null;
+        const mod = sources?.get("mod");
+        const sc = mod ? `() => ${node.scale} + control(${JSON.stringify(mod)}) * 0.25` : String(node.scale);
+        let outChain = `${base}\n  .scale(${sc})\n  .rotate(${node.rotate}, 0)`;
+        if (Math.abs(node.tx) > 0.001) outChain += `\n  .scrollX(${node.tx}, 0)`;
+        if (Math.abs(node.ty) > 0.001) outChain += `\n  .scrollY(${node.ty}, 0)`;
+        if (node.repeat > 1.05) {
+          const r = Math.max(1, Math.round(node.repeat));
+          outChain += `\n  .repeat(${r}, ${r})`;
+        }
+        return outChain;
+      }
+      case "top.composite": {
+        const texA = sources?.get("tex");
+        const base = texA ? buildChain(texA, new Set(visited)) : null;
+        if (!base) return null;
+        const texB = sources?.get("texB");
+        const layerB = (texB ? buildChain(texB, new Set(visited)) : null) ?? "noise(3, 0.1)";
+        const mod = sources?.get("amount");
+        const amt = mod ? `() => control(${JSON.stringify(mod)}) * ${node.amount}` : String(node.amount);
+        return `${base}\n  .${node.op}(${layerB.replace(/\n\s+/g, "")}, ${amt})`;
+      }
+      case "top.displace": {
+        const tex = sources?.get("tex");
+        const base = tex ? buildChain(tex, new Set(visited)) : null;
+        if (!base) return null;
+        const modTexId = sources?.get("modTex");
+        const modTex = (modTexId ? buildChain(modTexId, new Set(visited)) : null) ?? "noise(3, 0.15)";
+        const mod = sources?.get("mod");
+        const w = mod ? `() => control(${JSON.stringify(mod)}) * ${node.weight}` : String(node.weight);
+        return `${base}\n  .modulate(${modTex.replace(/\n\s+/g, "")}, ${w})`;
+      }
+      case "top.chopTo": {
+        const inp = sources?.get("in");
+        const fExpr = inp ? `() => ${node.freq} + control(${JSON.stringify(inp)}) * 8` : String(node.freq);
+        return `osc(${fExpr}, 0.12, 0.6)`;
+      }
       default:
         return null;
     }
@@ -599,22 +1021,32 @@ function evalMapRange(node: Extract<Node, { kind: "signal.mapRange" }>, input: n
 
 export class ProjectRuntime {
   private readonly plan: NodePlan[];
+  private readonly planById = new Map<string, NodePlan>();
   private readonly sceneId: string;
   private readonly controls = new Map<string, { min: number; max: number; value: number }>();
   private readonly numbers = new Map<string, number>();
   private readonly smoothState = new Map<string, number>();
+  private readonly speedState = new Map<string, number>();
+  private readonly dataTexts = new Map<string, string>();
   private readonly particles = new Map<string, Particles>();
   private readonly skeletonParticles = new Map<string, SkeletonParticles>();
+  private readonly sopParticles = new Map<
+    string,
+    { positions: Point3[]; u: number[]; v: number[]; w: number[] }
+  >();
   private readonly pointOutputs = new Map<string, Point3[]>();
   private readonly scenes = new Map<string, Point3[]>();
   private externalMocap: ExternalMocapInput = {};
+  private externalChannels: Record<string, number> = {};
   private stepCount = 0;
 
   constructor(data: unknown) {
     const project = readProject(data);
     this.sceneId = project.scene;
     this.plan = compile(project);
-    for (const { node, sources } of this.plan) {
+    for (const item of this.plan) {
+      this.planById.set(item.node.id, item);
+      const { node, sources } = item;
       if (node.kind === "control.number") {
         this.controls.set(node.id, { min: node.min, max: node.max, value: node.initial });
       }
@@ -628,6 +1060,17 @@ export class ProjectRuntime {
         this.skeletonParticles.set(node.id, skel);
         this.pointOutputs.set(node.id, skel.positions);
       }
+      if (node.kind === "sop.toPop") {
+        const seeded = seedSkeletonParticles(node.seed, node.count);
+        const entry = {
+          positions: seeded.positions,
+          u: seeded.segRatio,
+          v: seeded.offsets.map((o) => (o.x + 1) * 0.5),
+          w: seeded.offsets.map((o) => (o.y + 1) * 0.5),
+        };
+        this.sopParticles.set(node.id, entry);
+        this.pointOutputs.set(node.id, entry.positions);
+      }
       if (node.kind === "particles.merge") {
         const a = this.pointOutputs.get(sources.get("a")!) ?? [];
         const bId = sources.get("b");
@@ -640,10 +1083,200 @@ export class ProjectRuntime {
     }
     this.evaluateSignals(true);
     this.updateSkeletonParticles(0);
+    this.updateSopParticles(0);
   }
 
   setExternalMocap(input: ExternalMocapInput): void {
     this.externalMocap = input;
+  }
+
+  setExternalChannels(channels: Record<string, number>): void {
+    this.externalChannels = channels;
+  }
+
+  private resolveSopChain(sopId: string): SopShapeSpec | null {
+    const spec: SopShapeSpec = {
+      primitive: "sphere",
+      radius: 1.2,
+      tube: 0.38,
+      width: 2,
+      height: 2,
+      depth: 2,
+      size: 4,
+      segments: 24,
+      scale: 1,
+      tx: 0,
+      ty: 0,
+      tz: 0,
+      rx: 0,
+      ry: 0,
+      rz: 0,
+      noiseAmp: 0,
+      noiseFreq: 1.6,
+      noiseSpeed: 1.2,
+    };
+
+    let curId: string | undefined = sopId;
+    const visited = new Set<string>();
+    while (curId && !visited.has(curId)) {
+      visited.add(curId);
+      const item = this.planById.get(curId);
+      if (!item) return null;
+      const { node, sources } = item;
+      if (node.kind === "sop.transform") {
+        const modId = sources.get("mod");
+        const modVal = modId ? (this.numbers.get(modId) ?? 1) : 1;
+        spec.tx += node.tx;
+        spec.ty += node.ty;
+        spec.tz += node.tz;
+        spec.rx += node.rx;
+        spec.ry += node.ry * modVal;
+        spec.rz += node.rz;
+        spec.scale *= node.scale;
+        curId = sources.get("geo");
+      } else if (node.kind === "sop.noise") {
+        const ampId = sources.get("ampMod");
+        const ampMod = ampId ? (this.numbers.get(ampId) ?? 1) : 1;
+        spec.noiseAmp += node.amplitude * ampMod;
+        spec.noiseFreq = node.freq;
+        spec.noiseSpeed = node.speed;
+        curId = sources.get("geo");
+      } else if (node.kind === "sop.sphere") {
+        const sId = sources.get("scale");
+        const sVal = sId ? Math.max(0.1, this.numbers.get(sId) ?? 1) : 1;
+        spec.primitive = "sphere";
+        spec.radius = node.radius * sVal;
+        spec.segments = node.segments;
+        return spec;
+      } else if (node.kind === "sop.box") {
+        const sId = sources.get("scale");
+        const sVal = sId ? Math.max(0.1, this.numbers.get(sId) ?? 1) : 1;
+        spec.primitive = "box";
+        spec.width = node.width * sVal;
+        spec.height = node.height * sVal;
+        spec.depth = node.depth * sVal;
+        spec.segments = node.segments;
+        return spec;
+      } else if (node.kind === "sop.torus") {
+        const sId = sources.get("scale");
+        const sVal = sId ? Math.max(0.1, this.numbers.get(sId) ?? 1) : 1;
+        spec.primitive = "torus";
+        spec.radius = node.radius * sVal;
+        spec.tube = node.tube * sVal;
+        spec.segments = node.segments;
+        return spec;
+      } else if (node.kind === "sop.grid") {
+        const sId = sources.get("scale");
+        const sVal = sId ? Math.max(0.1, this.numbers.get(sId) ?? 1) : 1;
+        spec.primitive = "grid";
+        spec.size = node.size * sVal;
+        spec.segments = node.divisions;
+        return spec;
+      } else if (node.kind === "sop.fileIn") {
+        const sId = sources.get("scale");
+        const sVal = sId ? Math.max(0.1, this.numbers.get(sId) ?? 1) : 1;
+        spec.primitive = "fileIn";
+        spec.scale *= node.scale * sVal;
+        return spec;
+      } else {
+        return null;
+      }
+    }
+    return null;
+  }
+
+  private findUpstreamMediaNode(topId: string | undefined): { id: string; slot: number } | null {
+    let curId = topId;
+    const visited = new Set<string>();
+    while (curId && !visited.has(curId)) {
+      visited.add(curId);
+      const item = this.planById.get(curId);
+      if (!item) return null;
+      const { node, sources } = item;
+      if (
+        node.kind === "top.movieFileIn" ||
+        node.kind === "top.videoDeviceIn" ||
+        node.kind === "top.text"
+      ) {
+        return { id: node.id, slot: node.sourceSlot };
+      }
+      curId = sources.get("tex");
+    }
+    return null;
+  }
+
+  getSceneDescriptor(): SceneDescriptor {
+    const geos: RenderedGeoComp[] = [];
+    let light: SceneDescriptor["light"] = null;
+    let camera: SceneDescriptor["camera"] = null;
+    const mediaNodes: SceneDescriptor["mediaNodes"] = [];
+
+    for (const { node, sources } of this.plan) {
+      if (node.kind === "top.movieFileIn" || node.kind === "top.videoDeviceIn") {
+        mediaNodes.push({ id: node.id, kind: node.kind, slot: node.sourceSlot });
+      } else if (node.kind === "top.text") {
+        const dataSrc = sources.get("data");
+        const resolvedText = dataSrc ? (this.dataTexts.get(dataSrc) ?? node.text) : node.text;
+        mediaNodes.push({
+          id: node.id,
+          kind: "top.text",
+          slot: node.sourceSlot,
+          text: resolvedText,
+          fontSize: node.fontSize,
+          color: node.color,
+        });
+      } else if (node.kind === "comp.light") {
+        const modId = sources.get("intensityMod");
+        const modVal = modId ? (this.numbers.get(modId) ?? 1) : 1;
+        light = {
+          color: node.color,
+          intensity: Math.max(0, node.intensity * modVal),
+          x: node.x,
+          y: node.y,
+          z: node.z,
+        };
+      } else if (node.kind === "comp.camera") {
+        const fovId = sources.get("fovMod");
+        const fovDelta = fovId ? (this.numbers.get(fovId) ?? 0) * 6 : 0;
+        camera = {
+          fov: Math.max(15, Math.min(110, node.fov + fovDelta)),
+          autoRotate: node.autoRotate,
+          speed: node.speed,
+        };
+      } else if (node.kind === "comp.geo") {
+        const geoSrc = sources.get("geo");
+        const shape = geoSrc ? this.resolveSopChain(geoSrc) : null;
+        if (!shape) continue;
+        const scaleId = sources.get("scale");
+        const scaleVal = scaleId ? Math.max(0.05, this.numbers.get(scaleId) ?? 1) : 1;
+        const matId = sources.get("mat");
+        let material: RenderedMaterialSpec | null = null;
+        if (matId) {
+          const matItem = this.planById.get(matId);
+          const mNode = matItem?.node;
+          if (mNode?.kind === "mat.phong" || mNode?.kind === "mat.pbr" || mNode?.kind === "mat.constant") {
+            const mediaRef = this.findUpstreamMediaNode(matItem?.sources.get("tex"));
+            material = {
+              id: mNode.id,
+              kind: mNode.kind === "mat.phong" ? "phong" : mNode.kind === "mat.pbr" ? "pbr" : "constant",
+              color: mNode.color,
+              specular: mNode.kind === "mat.phong" ? mNode.specular : "#ffffff",
+              shininess: mNode.kind === "mat.phong" ? mNode.shininess : 30,
+              metalness: mNode.kind === "mat.pbr" ? mNode.metalness : 0.2,
+              roughness: mNode.kind === "mat.pbr" ? mNode.roughness : 0.5,
+              emissiveIntensity: mNode.kind === "mat.pbr" ? mNode.emissiveIntensity : 0,
+              opacity: mNode.kind === "mat.pbr" ? 1 : mNode.opacity,
+              wireframe: mNode.wireframe,
+              textureNodeId: mediaRef?.id ?? null,
+              textureSlot: mediaRef?.slot ?? null,
+            };
+          }
+        }
+        geos.push({ id: node.id, visible: node.visible, autoSpin: node.autoSpin, scale: scaleVal, shape, material });
+      }
+    }
+
+    return { geos, light, camera, mediaNodes };
   }
 
   getSkeletonDisplay(): {
@@ -712,6 +1345,33 @@ export class ProjectRuntime {
         this.numbers.set(node.id, evalLfo(node, time));
       } else if (node.kind === "signal.timer") {
         this.numbers.set(node.id, time * node.speed);
+      } else if (node.kind === "chop.noise") {
+        this.numbers.set(node.id, node.offset + sampleNoiseChop(node.seed, node.rate, time) * node.amplitude);
+      } else if (node.kind === "chop.audioIn") {
+        this.numbers.set(node.id, (this.externalChannels[node.band] ?? 0) * node.gain);
+      } else if (node.kind === "chop.speed") {
+        const inp = this.numbers.get(sources.get("in")!) ?? 0;
+        const prev = initial ? 0 : (this.speedState.get(node.id) ?? 0);
+        const next = initial ? 0 : prev + inp * node.gain * fixedStepSeconds;
+        this.speedState.set(node.id, next);
+        this.numbers.set(node.id, next);
+      } else if (node.kind === "chop.analyze") {
+        const beat = this.externalChannels.beat ?? ((time * 2) % 1);
+        if (node.mode === "pulse") this.numbers.set(node.id, beat < 0.18 ? 1 : 0);
+        else if (node.mode === "bpmNorm") this.numbers.set(node.id, (this.externalChannels.bpm ?? 120) / 120);
+        else this.numbers.set(node.id, beat);
+      } else if (node.kind === "dat.text") {
+        this.dataTexts.set(node.id, node.text);
+      } else if (node.kind === "dat.table") {
+        const cell = readTableCell(node.csv, node.row, node.col);
+        this.dataTexts.set(node.id, cell.text);
+        this.numbers.set(node.id, cell.num);
+      } else if (node.kind === "dat.evaluate") {
+        const inId = sources.get("in");
+        const x = inId ? (this.numbers.get(inId) ?? 0) : 0;
+        const val = evaluateSafeExpr(node.expr, x, time);
+        this.numbers.set(node.id, val);
+        this.dataTexts.set(node.id, val.toFixed(2));
       } else if (node.kind === "mocap.body") {
         this.numbers.set(node.id, this.externalMocap.activity ?? 0);
       } else if (node.kind === "mocap.hands") {
@@ -728,6 +1388,27 @@ export class ProjectRuntime {
       } else if (node.kind === "signal.math") {
         const input = this.numbers.get(sources.get("in")!) ?? 0;
         this.numbers.set(node.id, evalMath(node, input));
+      }
+    }
+  }
+
+  private updateSopParticles(time: number): void {
+    for (const { node, sources } of this.plan) {
+      if (node.kind !== "sop.toPop") continue;
+      const entry = this.sopParticles.get(node.id);
+      const geoId = sources.get("geo");
+      const shape = geoId ? this.resolveSopChain(geoId) : null;
+      if (!entry || !shape) continue;
+      const intId = sources.get("intensity");
+      const intVal = intId ? (this.numbers.get(intId) ?? 1) : 1;
+      const { positions, u, v, w } = entry;
+      for (let i = 0; i < positions.length; i += 1) {
+        const pt = sampleSopSurfacePoint(shape, u[i], v[i], w[i], time);
+        const jx = (w[i] - 0.5) * node.spread * intVal;
+        const jy = (u[i] - 0.5) * node.spread * intVal;
+        positions[i].x = pt.x + jx;
+        positions[i].y = pt.y + jy;
+        positions[i].z = pt.z;
       }
     }
   }
@@ -809,6 +1490,7 @@ export class ProjectRuntime {
       }
     }
     this.updateSkeletonParticles(time);
+    this.updateSopParticles(time);
     this.stepCount += 1;
   }
 

@@ -2,33 +2,53 @@ import {
   Activity,
   Box,
   Calculator,
+  Camera,
   CircleDot,
   Copy,
   Disc,
+  FileCode2,
+  Film,
+  Gauge,
+  Grid,
   Hand,
+  Image,
   Layers,
+  Lightbulb,
   Link2Off,
+  Mic,
+  Move3d,
   Palette,
   PersonStanding,
   Radio,
   RotateCw,
+  Sliders,
   Sparkles,
+  Sun,
+  Table2,
   Timer,
   Trash2,
+  Type,
   User,
   Waves,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type {
+  AnalyzeMode,
+  AudioBand,
+  CompositeOp,
   Edge,
   HydraBuffer,
   LfoWave,
   MathOp,
   Node,
   Project,
+  RampType,
   SkeletonEmitMode,
   SkeletonZone,
+  TopFitMode,
+  VideoDeviceMode,
 } from "../../../../packages/engine/project.ts";
+import { nodeMediaHub } from "../nodeMediaHub.ts";
 import { cablesSwatches, nodeTypes, portLabels } from "../studio.ts";
 import type { NodeMeta, ViewSettings } from "../studio.ts";
 import { MocapPanel } from "./MocapPanel.tsx";
@@ -40,6 +60,10 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "signal.smooth": Waves,
   "signal.mapRange": Calculator,
   "signal.math": Calculator,
+  "chop.noise": Waves,
+  "chop.audioIn": Mic,
+  "chop.speed": Gauge,
+  "chop.analyze": Sliders,
   "hydra.osc": Waves,
   "hydra.noise": Sparkles,
   "hydra.shape": Disc,
@@ -48,6 +72,33 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "hydra.modulate": Activity,
   "hydra.color": Palette,
   "hydra.out": Box,
+  "top.movieFileIn": Film,
+  "top.videoDeviceIn": Camera,
+  "top.ramp": Image,
+  "top.level": Sun,
+  "top.blur": Sparkles,
+  "top.transform": Move3d,
+  "top.composite": Layers,
+  "top.displace": Waves,
+  "top.text": Type,
+  "top.chopTo": Sliders,
+  "sop.sphere": Disc,
+  "sop.box": Box,
+  "sop.torus": CircleDot,
+  "sop.grid": Grid,
+  "sop.fileIn": FileCode2,
+  "sop.transform": Move3d,
+  "sop.noise": Waves,
+  "sop.toPop": Sparkles,
+  "mat.phong": Palette,
+  "mat.pbr": Palette,
+  "mat.constant": Palette,
+  "dat.text": Type,
+  "dat.table": Table2,
+  "dat.evaluate": FileCode2,
+  "comp.geo": Box,
+  "comp.light": Lightbulb,
+  "comp.camera": Camera,
   "mocap.body": PersonStanding,
   "mocap.hands": Hand,
   "scene.skeletonRig": User,
@@ -85,6 +136,8 @@ export function Inspector({
   onScene,
 }: InspectorProps) {
   const [copied, setCopied] = useState(false);
+  const [, setMediaRev] = useState(0);
+  useEffect(() => nodeMediaHub.subscribe(() => setMediaRev((r) => r + 1)), []);
   const description = node ? nodeTypes[node.kind] : undefined;
   const Icon = node ? icons[node.kind] : Box;
   const incoming = project.edges.filter((edge) => edge.to.node === node?.id);
@@ -94,7 +147,13 @@ export function Inspector({
     node?.kind === "signal.timer" ||
     node?.kind === "signal.smooth" ||
     node?.kind === "signal.mapRange" ||
-    node?.kind === "signal.math";
+    node?.kind === "signal.math" ||
+    node?.kind === "chop.noise" ||
+    node?.kind === "chop.audioIn" ||
+    node?.kind === "chop.speed" ||
+    node?.kind === "chop.analyze" ||
+    node?.kind === "dat.evaluate" ||
+    node?.kind === "dat.table";
 
   function copyRef(id: string) {
     void navigator.clipboard?.writeText(`control("${id}")`);
@@ -122,6 +181,32 @@ export function Inspector({
             if (Number.isFinite(v)) onChange(v);
           }}
         />
+      </label>
+    );
+  }
+
+  function boolInput(label: string, checked: boolean, onChange: (next: boolean) => void) {
+    return (
+      <label className="field">
+        {label}
+        <input
+          type="checkbox"
+          role="switch"
+          checked={checked}
+          onChange={(e) => onChange(e.target.checked)}
+        />
+      </label>
+    );
+  }
+
+  function colorInput(label: string, value: string, onChange: (next: string) => void) {
+    return (
+      <label className="field">
+        {label}
+        <span className="field-color">
+          <input type="color" value={value} onChange={(e) => onChange(e.target.value)} />
+          <small>{value}</small>
+        </span>
       </label>
     );
   }
@@ -591,6 +676,441 @@ export function Inspector({
                   Mostrar en el visor
                 </button>
               ))}
+
+            {/* TouchDesigner CHOP */}
+            {node.kind === "chop.noise" && (
+              <>
+                {numInput("Velocidad / Frecuencia", node.rate, (rate) => onNode({ ...node, rate }), { min: 0.05, max: 60, step: 0.1 })}
+                {numInput("Amplitud", node.amplitude, (amplitude) => onNode({ ...node, amplitude }), { min: 0, max: 10, step: 0.05 })}
+                {numInput("Offset", node.offset, (offset) => onNode({ ...node, offset }), { step: 0.05 })}
+                {numInput("Seed", node.seed, (seed) => onNode({ ...node, seed: Math.round(seed) }), { min: 0, step: 1 })}
+              </>
+            )}
+
+            {node.kind === "chop.audioIn" && (
+              <>
+                <label className="field">
+                  Banda de frecuencia
+                  <select
+                    value={node.band}
+                    onChange={(e) => onNode({ ...node, band: e.target.value as AudioBand })}
+                  >
+                    <option value="bass">Graves (Bass)</option>
+                    <option value="mid">Medios (Mid)</option>
+                    <option value="high">Agudos (High)</option>
+                    <option value="audio">Nivel Global</option>
+                  </select>
+                </label>
+                {numInput("Ganancia", node.gain, (gain) => onNode({ ...node, gain }), { min: 0, max: 10, step: 0.1 })}
+                <button
+                  type="button"
+                  className="button button-subtle"
+                  onClick={() => window.dispatchEvent(new CustomEvent("zence:toggle-mic"))}
+                >
+                  <Mic size={13} /> Activar / Detener micrófono
+                </button>
+              </>
+            )}
+
+            {node.kind === "chop.speed" && (
+              <>
+                {numInput("Ganancia", node.gain, (gain) => onNode({ ...node, gain }), { min: -20, max: 20, step: 0.1 })}
+              </>
+            )}
+
+            {node.kind === "chop.analyze" && (
+              <label className="field">
+                Modo de análisis
+                <select
+                  value={node.mode}
+                  onChange={(e) => onNode({ ...node, mode: e.target.value as AnalyzeMode })}
+                >
+                  <option value="beat">Fase de Beat (0..1)</option>
+                  <option value="pulse">Pulso de Impacto</option>
+                  <option value="bpmNorm">BPM Normalizado</option>
+                </select>
+              </label>
+            )}
+
+            {/* TouchDesigner TOP */}
+            {node.kind === "top.movieFileIn" && (() => {
+              const media = nodeMediaHub.getEntry(node.id);
+              return (
+                <>
+                  <label className="field">
+                    Buffer de textura
+                    <select
+                      value={node.sourceSlot}
+                      onChange={(e) =>
+                        onNode({ ...node, sourceSlot: Number(e.target.value) as 0 | 1 | 2 | 3 })
+                      }
+                    >
+                      <option value={0}>s0</option>
+                      <option value={1}>s1</option>
+                      <option value={2}>s2</option>
+                      <option value={3}>s3</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    Ajuste (Fit)
+                    <select
+                      value={node.fit}
+                      onChange={(e) => onNode({ ...node, fit: e.target.value as TopFitMode })}
+                    >
+                      <option value="cover">Cover</option>
+                      <option value="contain">Contain</option>
+                      <option value="stretch">Stretch</option>
+                    </select>
+                  </label>
+                  {numInput("Velocidad", node.speed, (speed) => onNode({ ...node, speed }), { min: 0.1, max: 4, step: 0.1 })}
+                  {boolInput("Loop", node.loop, (loop) => onNode({ ...node, loop }))}
+                  <label className="button button-subtle" style={{ cursor: "pointer" }}>
+                    <Film size={13} /> Cargar Imagen / Video
+                    <input
+                      type="file"
+                      accept="image/*,video/*"
+                      style={{ display: "none" }}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) void nodeMediaHub.loadMediaFile(node.id, file, node.sourceSlot);
+                        e.currentTarget.value = "";
+                      }}
+                    />
+                  </label>
+                  {media?.label && <p className="inspector-note">Activo: {media.label}</p>}
+                  {media && (
+                    <button
+                      type="button"
+                      className="button button-subtle"
+                      onClick={() => nodeMediaHub.stopMedia(node.id)}
+                    >
+                      Limpiar medio
+                    </button>
+                  )}
+                </>
+              );
+            })()}
+
+            {node.kind === "top.videoDeviceIn" && (() => {
+              const media = nodeMediaHub.getEntry(node.id);
+              return (
+                <>
+                  <label className="field">
+                    Dispositivo
+                    <select
+                      value={node.deviceMode}
+                      onChange={(e) =>
+                        onNode({ ...node, deviceMode: e.target.value as VideoDeviceMode })
+                      }
+                    >
+                      <option value="camera">Cámara Web</option>
+                      <option value="screen">Capturar Pantalla</option>
+                    </select>
+                  </label>
+                  <label className="field">
+                    Buffer de textura
+                    <select
+                      value={node.sourceSlot}
+                      onChange={(e) =>
+                        onNode({ ...node, sourceSlot: Number(e.target.value) as 0 | 1 | 2 | 3 })
+                      }
+                    >
+                      <option value={0}>s0</option>
+                      <option value={1}>s1</option>
+                      <option value={2}>s2</option>
+                      <option value={3}>s3</option>
+                    </select>
+                  </label>
+                  {boolInput("Espejo horizontal", node.mirror, (mirror) => onNode({ ...node, mirror }))}
+                  <button
+                    type="button"
+                    className="button button-subtle"
+                    onClick={() => {
+                      if (media?.active) nodeMediaHub.stopMedia(node.id);
+                      else void nodeMediaHub.startDevice(node.id, node.deviceMode, node.sourceSlot);
+                    }}
+                  >
+                    <Camera size={13} /> {media?.active ? "Detener captura" : "Iniciar captura"}
+                  </button>
+                  {media?.label && <p className="inspector-note">Fuente: {media.label}</p>}
+                </>
+              );
+            })()}
+
+            {node.kind === "top.ramp" && (
+              <>
+                <label className="field">
+                  Tipo de rampa
+                  <select
+                    value={node.rampType}
+                    onChange={(e) => onNode({ ...node, rampType: e.target.value as RampType })}
+                  >
+                    <option value="linear">Lineal</option>
+                    <option value="radial">Radial</option>
+                    <option value="circular">Circular</option>
+                  </select>
+                </label>
+                {numInput("Velocidad", node.speed, (speed) => onNode({ ...node, speed }), { step: 0.05 })}
+                {numInput("Color 1 R", node.r1, (r1) => onNode({ ...node, r1 }), { min: 0, max: 1, step: 0.05 })}
+                {numInput("Color 1 G", node.g1, (g1) => onNode({ ...node, g1 }), { min: 0, max: 1, step: 0.05 })}
+                {numInput("Color 1 B", node.b1, (b1) => onNode({ ...node, b1 }), { min: 0, max: 1, step: 0.05 })}
+                {numInput("Color 2 R", node.r2, (r2) => onNode({ ...node, r2 }), { min: 0, max: 1, step: 0.05 })}
+                {numInput("Color 2 G", node.g2, (g2) => onNode({ ...node, g2 }), { min: 0, max: 1, step: 0.05 })}
+                {numInput("Color 2 B", node.b2, (b2) => onNode({ ...node, b2 }), { min: 0, max: 1, step: 0.05 })}
+              </>
+            )}
+
+            {node.kind === "top.level" && (
+              <>
+                {numInput("Brillo", node.brightness, (brightness) => onNode({ ...node, brightness }), { min: -1, max: 1, step: 0.05 })}
+                {numInput("Contraste", node.contrast, (contrast) => onNode({ ...node, contrast }), { min: 0, max: 4, step: 0.05 })}
+                {numInput("Saturación", node.saturate, (saturate) => onNode({ ...node, saturate }), { min: 0, max: 4, step: 0.05 })}
+                {numInput("Invertir", node.invert, (invert) => onNode({ ...node, invert }), { min: 0, max: 1, step: 0.05 })}
+              </>
+            )}
+
+            {node.kind === "top.blur" && (
+              numInput("Pixelado / Difuminado", node.size, (size) => onNode({ ...node, size }), { min: 0, max: 1, step: 0.05 })
+            )}
+
+            {node.kind === "top.transform" && (
+              <>
+                {numInput("Mover X", node.tx, (tx) => onNode({ ...node, tx }), { step: 0.05 })}
+                {numInput("Mover Y", node.ty, (ty) => onNode({ ...node, ty }), { step: 0.05 })}
+                {numInput("Escala", node.scale, (scale) => onNode({ ...node, scale }), { min: 0.05, max: 10, step: 0.05 })}
+                {numInput("Rotación", node.rotate, (rotate) => onNode({ ...node, rotate }), { step: 0.05 })}
+                {numInput("Repetición", node.repeat, (repeat) => onNode({ ...node, repeat: Math.max(1, Math.round(repeat)) }), { min: 1, max: 16, step: 1 })}
+              </>
+            )}
+
+            {node.kind === "top.composite" && (
+              <>
+                <label className="field">
+                  Operación
+                  <select
+                    value={node.op}
+                    onChange={(e) => onNode({ ...node, op: e.target.value as CompositeOp })}
+                  >
+                    <option value="blend">Blend</option>
+                    <option value="add">Add</option>
+                    <option value="diff">Diff</option>
+                    <option value="mult">Multiply</option>
+                  </select>
+                </label>
+                {numInput("Mezcla", node.amount, (amount) => onNode({ ...node, amount }), { min: 0, max: 1, step: 0.05 })}
+              </>
+            )}
+
+            {node.kind === "top.displace" && (
+              numInput("Peso", node.weight, (weight) => onNode({ ...node, weight }), { min: -2, max: 2, step: 0.05 })
+            )}
+
+            {node.kind === "top.text" && (
+              <>
+                <label className="field">
+                  Texto
+                  <input
+                    type="text"
+                    value={node.text}
+                    onChange={(e) => onNode({ ...node, text: e.target.value })}
+                  />
+                </label>
+                {numInput("Tamaño fuente", node.fontSize, (fontSize) => onNode({ ...node, fontSize }), { min: 12, max: 256, step: 4 })}
+                {colorInput("Color", node.color, (color) => onNode({ ...node, color }))}
+                <label className="field">
+                  Buffer de textura
+                  <select
+                    value={node.sourceSlot}
+                    onChange={(e) =>
+                      onNode({ ...node, sourceSlot: Number(e.target.value) as 0 | 1 | 2 | 3 })
+                    }
+                  >
+                    <option value={0}>s0</option>
+                    <option value={1}>s1</option>
+                    <option value={2}>s2</option>
+                    <option value={3}>s3</option>
+                  </select>
+                </label>
+              </>
+            )}
+
+            {node.kind === "top.chopTo" && (
+              numInput("Frecuencia base", node.freq, (freq) => onNode({ ...node, freq }), { min: 1, max: 60, step: 0.5 })
+            )}
+
+            {/* TouchDesigner SOP */}
+            {node.kind === "sop.sphere" && (
+              <>
+                {numInput("Radio", node.radius, (radius) => onNode({ ...node, radius }), { min: 0.1, max: 20, step: 0.1 })}
+                {numInput("Segmentos", node.segments, (segments) => onNode({ ...node, segments: Math.max(4, Math.round(segments)) }), { min: 4, max: 64, step: 2 })}
+              </>
+            )}
+
+            {node.kind === "sop.box" && (
+              <>
+                {numInput("Ancho", node.width, (width) => onNode({ ...node, width }), { min: 0.1, max: 20, step: 0.1 })}
+                {numInput("Alto", node.height, (height) => onNode({ ...node, height }), { min: 0.1, max: 20, step: 0.1 })}
+                {numInput("Profundidad", node.depth, (depth) => onNode({ ...node, depth }), { min: 0.1, max: 20, step: 0.1 })}
+                {numInput("Divisiones", node.segments, (segments) => onNode({ ...node, segments: Math.max(1, Math.round(segments)) }), { min: 1, max: 16, step: 1 })}
+              </>
+            )}
+
+            {node.kind === "sop.torus" && (
+              <>
+                {numInput("Radio", node.radius, (radius) => onNode({ ...node, radius }), { min: 0.1, max: 20, step: 0.1 })}
+                {numInput("Tubo", node.tube, (tube) => onNode({ ...node, tube }), { min: 0.05, max: 5, step: 0.05 })}
+                {numInput("Segmentos", node.segments, (segments) => onNode({ ...node, segments: Math.max(6, Math.round(segments)) }), { min: 6, max: 64, step: 2 })}
+              </>
+            )}
+
+            {node.kind === "sop.grid" && (
+              <>
+                {numInput("Tamaño", node.size, (size) => onNode({ ...node, size }), { min: 0.2, max: 40, step: 0.2 })}
+                {numInput("Divisiones", node.divisions, (divisions) => onNode({ ...node, divisions: Math.max(2, Math.round(divisions)) }), { min: 2, max: 64, step: 2 })}
+              </>
+            )}
+
+            {node.kind === "sop.fileIn" && (
+              <>
+                {numInput("Escala", node.scale, (scale) => onNode({ ...node, scale }), { min: 0.05, max: 20, step: 0.05 })}
+                <label className="field">
+                  Archivo 3D (.glb / .fbx / .obj)
+                  <input
+                    type="text"
+                    value={node.fileName}
+                    onChange={(e) => onNode({ ...node, fileName: e.target.value })}
+                  />
+                </label>
+                <label className="button button-subtle" style={{ cursor: "pointer" }}>
+                  <FileCode2 size={13} /> Cargar archivo 3D
+                  <input
+                    type="file"
+                    accept=".fbx,.glb,.gltf,.obj"
+                    style={{ display: "none" }}
+                    onChange={(e) => {
+                      const file = e.target.files?.[0];
+                      if (file) onNode({ ...node, fileName: file.name });
+                      e.currentTarget.value = "";
+                    }}
+                  />
+                </label>
+              </>
+            )}
+
+            {node.kind === "sop.transform" && (
+              <>
+                {numInput("Pos X", node.tx, (tx) => onNode({ ...node, tx }), { step: 0.1 })}
+                {numInput("Pos Y", node.ty, (ty) => onNode({ ...node, ty }), { step: 0.1 })}
+                {numInput("Pos Z", node.tz, (tz) => onNode({ ...node, tz }), { step: 0.1 })}
+                {numInput("Rot X", node.rx, (rx) => onNode({ ...node, rx }), { step: 0.1 })}
+                {numInput("Rot Y", node.ry, (ry) => onNode({ ...node, ry }), { step: 0.1 })}
+                {numInput("Rot Z", node.rz, (rz) => onNode({ ...node, rz }), { step: 0.1 })}
+                {numInput("Escala", node.scale, (scale) => onNode({ ...node, scale }), { min: 0.05, max: 10, step: 0.05 })}
+              </>
+            )}
+
+            {node.kind === "sop.noise" && (
+              <>
+                {numInput("Amplitud", node.amplitude, (amplitude) => onNode({ ...node, amplitude }), { min: 0, max: 5, step: 0.05 })}
+                {numInput("Frecuencia", node.freq, (freq) => onNode({ ...node, freq }), { min: 0.1, max: 20, step: 0.1 })}
+                {numInput("Velocidad", node.speed, (speed) => onNode({ ...node, speed }), { min: -10, max: 10, step: 0.1 })}
+              </>
+            )}
+
+            {node.kind === "sop.toPop" && (
+              <>
+                {numInput("Partículas", node.count, (count) => onNode({ ...node, count: Math.max(1, Math.min(10000, Math.round(count))) }), { min: 1, max: 10000, step: 64 })}
+                {numInput("Seed", node.seed, (seed) => onNode({ ...node, seed: Math.round(seed) }), { min: 0, step: 1 })}
+                {numInput("Dispersión", node.spread, (spread) => onNode({ ...node, spread }), { min: 0, max: 5, step: 0.05 })}
+              </>
+            )}
+
+            {/* TouchDesigner MAT */}
+            {node.kind === "mat.phong" && (
+              <>
+                {colorInput("Color base", node.color, (color) => onNode({ ...node, color }))}
+                {colorInput("Especular", node.specular, (specular) => onNode({ ...node, specular }))}
+                {numInput("Brillo", node.shininess, (shininess) => onNode({ ...node, shininess }), { min: 0, max: 200, step: 5 })}
+                {numInput("Opacidad", node.opacity, (opacity) => onNode({ ...node, opacity }), { min: 0, max: 1, step: 0.05 })}
+                {boolInput("Wireframe", node.wireframe, (wireframe) => onNode({ ...node, wireframe }))}
+              </>
+            )}
+
+            {node.kind === "mat.pbr" && (
+              <>
+                {colorInput("Color base", node.color, (color) => onNode({ ...node, color }))}
+                {numInput("Metalness", node.metalness, (metalness) => onNode({ ...node, metalness }), { min: 0, max: 1, step: 0.05 })}
+                {numInput("Roughness", node.roughness, (roughness) => onNode({ ...node, roughness }), { min: 0, max: 1, step: 0.05 })}
+                {numInput("Emisivo", node.emissiveIntensity, (emissiveIntensity) => onNode({ ...node, emissiveIntensity }), { min: 0, max: 5, step: 0.1 })}
+                {boolInput("Wireframe", node.wireframe, (wireframe) => onNode({ ...node, wireframe }))}
+              </>
+            )}
+
+            {node.kind === "mat.constant" && (
+              <>
+                {colorInput("Color", node.color, (color) => onNode({ ...node, color }))}
+                {numInput("Opacidad", node.opacity, (opacity) => onNode({ ...node, opacity }), { min: 0, max: 1, step: 0.05 })}
+                {boolInput("Wireframe", node.wireframe, (wireframe) => onNode({ ...node, wireframe }))}
+              </>
+            )}
+
+            {/* TouchDesigner DAT */}
+            {node.kind === "dat.text" && (
+              <textarea
+                className="inspector-textarea"
+                value={node.text}
+                onChange={(e) => onNode({ ...node, text: e.target.value })}
+              />
+            )}
+
+            {node.kind === "dat.table" && (
+              <>
+                <textarea
+                  className="inspector-textarea"
+                  value={node.csv}
+                  onChange={(e) => onNode({ ...node, csv: e.target.value })}
+                />
+                {numInput("Fila (row)", node.row, (row) => onNode({ ...node, row: Math.max(0, Math.round(row)) }), { min: 0, step: 1 })}
+                {numInput("Columna (col)", node.col, (col) => onNode({ ...node, col: Math.max(0, Math.round(col)) }), { min: 0, step: 1 })}
+              </>
+            )}
+
+            {node.kind === "dat.evaluate" && (
+              <label className="field">
+                Expresión (x, t, sin, cos, clamp...)
+                <input
+                  type="text"
+                  value={node.expr}
+                  onChange={(e) => onNode({ ...node, expr: e.target.value })}
+                />
+              </label>
+            )}
+
+            {/* TouchDesigner COMP */}
+            {node.kind === "comp.geo" && (
+              <>
+                {boolInput("Visible en visor 3D", node.visible, (visible) => onNode({ ...node, visible }))}
+                {numInput("Auto Spin", node.autoSpin, (autoSpin) => onNode({ ...node, autoSpin }), { min: -10, max: 10, step: 0.05 })}
+              </>
+            )}
+
+            {node.kind === "comp.light" && (
+              <>
+                {colorInput("Color de luz", node.color, (color) => onNode({ ...node, color }))}
+                {numInput("Intensidad", node.intensity, (intensity) => onNode({ ...node, intensity }), { min: 0, max: 20, step: 0.1 })}
+                {numInput("Pos X", node.x, (x) => onNode({ ...node, x }), { step: 0.25 })}
+                {numInput("Pos Y", node.y, (y) => onNode({ ...node, y }), { step: 0.25 })}
+                {numInput("Pos Z", node.z, (z) => onNode({ ...node, z }), { step: 0.25 })}
+              </>
+            )}
+
+            {node.kind === "comp.camera" && (
+              <>
+                {numInput("FOV (°)", node.fov, (fov) => onNode({ ...node, fov }), { min: 15, max: 120, step: 1 })}
+                {boolInput("Auto Rotación", node.autoRotate, (autoRotate) => onNode({ ...node, autoRotate }))}
+                {numInput("Velocidad órbita", node.speed, (speed) => onNode({ ...node, speed }), { min: 0, max: 10, step: 0.1 })}
+              </>
+            )}
           </div>
 
           {isSignal && Number.isFinite(liveValue) && (

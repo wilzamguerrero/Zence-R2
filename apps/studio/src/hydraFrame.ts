@@ -41,7 +41,8 @@ export function frameDocument(): string {
   const canvas = document.querySelector("canvas");
   canvas.getContext("webgl", {preserveDrawingBuffer:true});
   const hydra = new Hydra({canvas, detectAudio:false, enableStreamCapture:false, makeGlobal:true, autoLoop:false, width:960, height:540});
-  let controls = {}, running = true, frameExport = false, busy = false, lastExport = 0, media = null, mediaUrl = null, liveSourceCanvas = null, liveSourceInit = false;
+  let controls = {}, running = true, frameExport = false, busy = false, lastExport = 0, media = null, mediaUrl = null;
+  const liveCanvases = {}, liveInits = {};
   window.control = id => controls[id] ?? 0;
   window.audio = () => controls.__audio ?? 0;
   window.bass = () => controls.__bass ?? 0;
@@ -85,20 +86,25 @@ export function frameDocument(): string {
     }
     if(data.type === "blackout") canvas.style.visibility = data.value ? "hidden" : "visible";
     if(data.type === "sourceFrame" && data.bitmap) {
-      if(!liveSourceCanvas) {
-        liveSourceCanvas = document.createElement("canvas");
-        liveSourceCanvas.width = 640;
-        liveSourceCanvas.height = 360;
+      const slot = Number.isInteger(data.slot) ? Math.min(3, Math.max(0, data.slot)) : 0;
+      const buf = [s0, s1, s2, s3][slot] || s0;
+      if(!liveCanvases[slot]) {
+        const c = document.createElement("canvas");
+        c.width = 640;
+        c.height = 360;
+        liveCanvases[slot] = c;
       }
-      liveSourceCanvas.getContext("2d").drawImage(data.bitmap, 0, 0, liveSourceCanvas.width, liveSourceCanvas.height);
+      const c = liveCanvases[slot];
+      c.getContext("2d").drawImage(data.bitmap, 0, 0, c.width, c.height);
       data.bitmap.close();
-      if(!liveSourceInit) {
-        liveSourceInit = true;
-        s0.init({src: liveSourceCanvas, dynamic: true});
+      if(!liveInits[slot]) {
+        liveInits[slot] = true;
+        buf.init({src: c, dynamic: true});
       }
     }
     if(data.type === "resetSource") {
-      liveSourceInit = false;
+      const slot = Number.isInteger(data.slot) ? data.slot : 0;
+      liveInits[slot] = false;
     }
     if(data.type === "snapshot") {
       createImageBitmap(canvas).then(bitmap=>parent.postMessage({type:"snapshotBitmap",bitmap},"*",[bitmap])).catch(()=>{});
@@ -116,7 +122,7 @@ export function frameDocument(): string {
           media.src = mediaUrl; await media.decode();
         }
         s0.init({src:media});
-        liveSourceInit = false;
+        liveInits[0] = false;
         hydra.tick(0);
         tell({type:"mediaReady"});
       } catch(error) { tell({type:"error",message:"No se pudo decodificar el medio. " + error.message}); }

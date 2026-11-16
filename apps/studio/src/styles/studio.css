@@ -1807,16 +1807,25 @@ h1 {
   pointer-events: auto;
 }
 .rete-socket-number {
-  background: #cf8acc;
+  background: #6ed491;
 }
 .rete-socket-points {
-  background: #a58ae6;
+  background: #7aa2f7;
 }
 .rete-socket-hydra {
+  background: #9b72cf;
+}
+.rete-socket-geometry {
+  background: #58c4dc;
+}
+.rete-socket-material {
   background: #f0b35a;
 }
+.rete-socket-data {
+  background: #cf8acc;
+}
 .rete-socket-skeleton {
-  background: #68d8d6;
+  background: #d0cfd6;
 }
 
 .rete-wire {
@@ -1853,16 +1862,97 @@ h1 {
   }
 }
 .rete-wire-number {
-  color: #cf8acc;
+  color: #6ed491;
 }
 .rete-wire-points {
-  color: #a58ae6;
+  color: #7aa2f7;
 }
 .rete-wire-hydra {
+  color: #9b72cf;
+}
+.rete-wire-geometry {
+  color: #58c4dc;
+}
+.rete-wire-material {
   color: #f0b35a;
 }
+.rete-wire-data {
+  color: #cf8acc;
+}
 .rete-wire-skeleton {
-  color: #68d8d6;
+  color: #d0cfd6;
+}
+
+.td-family-tag {
+  margin-left: auto;
+  padding: 1px 5px;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--ink-dim);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.rete-inline-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.rete-inline-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px 7px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--ink);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.rete-inline-btn:hover {
+  border-color: var(--accent);
+  color: var(--ink-bright);
+}
+
+.rete-inline-btn.is-active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.inspector-textarea {
+  width: 100%;
+  min-height: 76px;
+  padding: 6px 8px;
+  font-family: var(--mono, monospace);
+  font-size: 11px;
+  color: var(--ink-bright);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  resize: vertical;
+}
+
+.field-color {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.field-color input[type="color"] {
+  width: 28px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--line);
+  background: transparent;
+  cursor: pointer;
 }
 
 .mocap-panel h4 {

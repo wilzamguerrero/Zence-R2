@@ -191,3 +191,67 @@ test("mocap body, hands, skeleton rig, bone particles and merge run deterministi
   assert.equal(snap.length, 96);
   assert.ok(snap[0].y >= 1.5 && snap[0].y <= 3.5);
 });
+
+test("TouchDesigner TOP, CHOP, SOP, MAT, DAT, and COMP families compile and execute deterministically", () => {
+  const patch = readProject({
+    schemaVersion: 1,
+    scene: "stage",
+    nodes: [
+      { id: "movie1", kind: "top.movieFileIn", sourceSlot: 0, fit: "cover", speed: 1, loop: true },
+      { id: "level1", kind: "top.level", brightness: 0.1, contrast: 1.3, saturate: 1.2, invert: 0 },
+      { id: "comp1", kind: "top.composite", op: "blend", amount: 0.5 },
+      { id: "textDat", kind: "dat.text", text: "ZENCE LIVE" },
+      { id: "textTop", kind: "top.text", text: "FALLBACK", fontSize: 64, color: "#cf8acc", sourceSlot: 2 },
+      { id: "out1", kind: "hydra.out", buffer: "o0" },
+      { id: "audio1", kind: "chop.audioIn", band: "bass", gain: 2 },
+      { id: "noiseChop", kind: "chop.noise", seed: 5, rate: 1, amplitude: 0.5, offset: 1 },
+      { id: "evalDat", kind: "dat.evaluate", expr: "abs(x * 2) + 0.5" },
+      { id: "torus1", kind: "sop.torus", radius: 1.4, tube: 0.4, segments: 24 },
+      { id: "noiseSop", kind: "sop.noise", amplitude: 0.2, freq: 2, speed: 1 },
+      { id: "mat1", kind: "mat.phong", color: "#ae68ad", specular: "#ffffff", shininess: 60, wireframe: false, opacity: 1 },
+      { id: "geo1", kind: "comp.geo", visible: true, autoSpin: 0.5 },
+      { id: "light1", kind: "comp.light", color: "#ffffff", intensity: 4, x: 3, y: 5, z: 4 },
+      { id: "toPop", kind: "sop.toPop", seed: 17, count: 48, spread: 0.05 },
+      { id: "stage", kind: "scene.points" },
+    ],
+    edges: [
+      { from: { node: "movie1", port: "tex" }, to: { node: "level1", port: "tex" } },
+      { from: { node: "level1", port: "tex" }, to: { node: "comp1", port: "tex" } },
+      { from: { node: "textDat", port: "data" }, to: { node: "textTop", port: "data" } },
+      { from: { node: "textTop", port: "tex" }, to: { node: "comp1", port: "texB" } },
+      { from: { node: "comp1", port: "tex" }, to: { node: "out1", port: "tex" } },
+      { from: { node: "audio1", port: "value" }, to: { node: "evalDat", port: "in" } },
+      { from: { node: "torus1", port: "geo" }, to: { node: "noiseSop", port: "geo" } },
+      { from: { node: "evalDat", port: "value" }, to: { node: "noiseSop", port: "ampMod" } },
+      { from: { node: "movie1", port: "tex" }, to: { node: "mat1", port: "tex" } },
+      { from: { node: "noiseSop", port: "geo" }, to: { node: "geo1", port: "geo" } },
+      { from: { node: "mat1", port: "mat" }, to: { node: "geo1", port: "mat" } },
+      { from: { node: "noiseSop", port: "geo" }, to: { node: "toPop", port: "geo" } },
+      { from: { node: "noiseChop", port: "value" }, to: { node: "toPop", port: "intensity" } },
+      { from: { node: "toPop", port: "points" }, to: { node: "stage", port: "points" } },
+    ],
+  });
+
+  const code = compileHydraCode(patch);
+  assert.ok(code);
+  assert.match(code, /src\(s0\)/);
+  assert.match(code, /\.brightness\(0\.1\)/);
+  assert.match(code, /\.blend\(src\(s2\), 0\.5\)/);
+
+  const runtime = new ProjectRuntime(patch);
+  runtime.setExternalChannels({ bass: 0.4, beat: 0.25, bpm: 128 });
+  for (let i = 0; i < 15; i += 1) runtime.tick();
+
+  assert.ok(Math.abs(runtime.getNumber("audio1")! - 0.8) < 1e-6);
+  assert.ok(Math.abs(runtime.getNumber("evalDat")! - 2.1) < 1e-6);
+  assert.equal(runtime.pointCount, 48);
+
+  const desc = runtime.getSceneDescriptor();
+  assert.equal(desc.geos.length, 1);
+  assert.equal(desc.geos[0].shape.primitive, "torus");
+  assert.equal(desc.geos[0].material?.textureNodeId, "movie1");
+  assert.equal(desc.geos[0].material?.textureSlot, 0);
+  assert.equal(desc.light?.intensity, 4);
+  const textMedia = desc.mediaNodes.find((m) => m.id === "textTop");
+  assert.equal(textMedia?.text, "ZENCE LIVE");
+});

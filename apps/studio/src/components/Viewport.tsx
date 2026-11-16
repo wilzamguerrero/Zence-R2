@@ -16,6 +16,7 @@ import { useEffect, useRef, useState } from "react";
 import {
   AmbientLight,
   Box3,
+  BoxGeometry,
   BufferAttribute,
   BufferGeometry,
   CanvasTexture,
@@ -31,9 +32,12 @@ import {
   Line,
   LineBasicMaterial,
   LineSegments,
+  type Material,
   Matrix4,
   Mesh,
   MeshBasicMaterial,
+  MeshPhongMaterial,
+  MeshStandardMaterial,
   PerspectiveCamera,
   PlaneGeometry,
   Points,
@@ -41,6 +45,7 @@ import {
   ShaderMaterial,
   SphereGeometry,
   SRGBColorSpace,
+  TorusGeometry,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -49,7 +54,14 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { ReactNode, RefObject } from "react";
-import type { BoneSegment3, Node, Project, SkeletonZone } from "../../../../packages/engine/project.ts";
+import type {
+  BoneSegment3,
+  Node,
+  Project,
+  RenderedGeoComp,
+  SkeletonZone,
+} from "../../../../packages/engine/project.ts";
+import { nodeMediaHub } from "../nodeMediaHub.ts";
 import type { Playback } from "../playback.ts";
 import { defaultPosition3D, nodeTypes } from "../studio.ts";
 import type { NodeMeta, Position3D, ViewSettings } from "../studio.ts";
@@ -333,6 +345,91 @@ export function Viewport({
     const models = new Group();
     scene.add(models);
     let activeRig: RigCharacter | null = null;
+
+    // TouchDesigner SOP + MAT + COMP live scene graph meshes
+    const sopGeoGroup = new Group();
+    scene.add(sopGeoGroup);
+    type SopMeshEntry = {
+      mesh: Mesh;
+      basePos: Float32Array;
+      geoKey: string;
+      matKey: string;
+    };
+    const sopMeshes = new Map<string, SopMeshEntry>();
+    function buildSopGeometry(shape: RenderedGeoComp["shape"]): {
+      geo: BufferGeometry;
+      key: string;
+      isGrid: boolean;
+    } {
+      const segs = Math.max(4, Math.min(64, Math.round(shape.segments)));
+      if (shape.primitive === "box") {
+        const div = Math.max(1, Math.min(16, Math.round(shape.segments)));
+        return {
+          geo: new BoxGeometry(shape.width, shape.height, shape.depth, div, div, div),
+          key: `box:${shape.width}:${shape.height}:${shape.depth}:${div}`,
+          isGrid: false,
+        };
+      }
+      if (shape.primitive === "torus") {
+        return {
+          geo: new TorusGeometry(shape.radius, shape.tube, Math.max(6, Math.round(segs * 0.65)), segs),
+          key: `torus:${shape.radius}:${shape.tube}:${segs}`,
+          isGrid: false,
+        };
+      }
+      if (shape.primitive === "grid") {
+        const g = new PlaneGeometry(shape.size, shape.size, segs, segs);
+        g.rotateX(-Math.PI / 2);
+        return {
+          geo: g,
+          key: `grid:${shape.size}:${segs}`,
+          isGrid: true,
+        };
+      }
+      if (shape.primitive === "fileIn") {
+        return {
+          geo: new SphereGeometry(shape.radius, 20, 14),
+          key: `fileIn:${shape.radius}`,
+          isGrid: false,
+        };
+      }
+      return {
+        geo: new SphereGeometry(shape.radius, segs, Math.max(4, Math.round(segs * 0.7))),
+        key: `sphere:${shape.radius}:${segs}`,
+        isGrid: false,
+      };
+    }
+    function buildSopMaterial(mat: RenderedGeoComp["material"]): Material {
+      if (!mat) {
+        return new MeshStandardMaterial({ color: "#cf8acc", roughness: 0.42, metalness: 0.18 });
+      }
+      const map = nodeMediaHub.getThreeTexture(mat.textureNodeId);
+      const common = {
+        color: mat.color,
+        wireframe: mat.wireframe,
+        transparent: mat.opacity < 0.99,
+        opacity: mat.opacity,
+        side: DoubleSide,
+        map: map ?? undefined,
+      };
+      if (mat.kind === "constant") {
+        return new MeshBasicMaterial(common);
+      }
+      if (mat.kind === "phong") {
+        return new MeshPhongMaterial({
+          ...common,
+          specular: mat.specular,
+          shininess: mat.shininess,
+        });
+      }
+      return new MeshStandardMaterial({
+        ...common,
+        metalness: mat.metalness,
+        roughness: mat.roughness,
+        emissive: mat.emissiveIntensity > 0 ? new Color(mat.color) : new Color(0x000000),
+        emissiveIntensity: mat.emissiveIntensity,
+      });
+    }
 
     // Esqueleto 3D interactivo (funciona con modelo cargado o sin modelo)
     const skeletonGroup = new Group();
@@ -882,8 +979,118 @@ export function Viewport({
         playback.runtime.setExternalMocap({});
       }
 
+      const lv = audioLevels?.current ?? { bass: 0, mid: 0, high: 0, audio: 0 };
+      const secNow = now * 0.001;
+      const beatPhase = (secNow * 2) % 1;
+      playback.runtime.setExternalChannels({
+        bass: lv.bass,
+        mid: lv.mid,
+        high: lv.high,
+        audio: lv.audio,
+        beat: beatPhase,
+        bpm: 120,
+        bpmNorm: 0.5,
+      });
+
       playback.advance(elapsed);
       const { runtime, tick } = playback;
+      const sceneDesc = runtime.getSceneDescriptor();
+      for (const mn of sceneDesc.mediaNodes) {
+        if (mn.kind === "top.text") {
+          nodeMediaHub.syncTextNode(mn.id, mn.text ?? "ZENCE R2", mn.fontSize ?? 72, mn.color ?? "#ffffff", mn.slot);
+        }
+      }
+      if (sceneDesc.light) {
+        light.color.set(sceneDesc.light.color);
+        light.intensity = sceneDesc.light.intensity;
+        light.position.set(sceneDesc.light.x, sceneDesc.light.y, sceneDesc.light.z);
+      }
+      if (sceneDesc.camera && Math.abs(camera.fov - sceneDesc.camera.fov) > 0.05) {
+        camera.fov = sceneDesc.camera.fov;
+        camera.updateProjectionMatrix();
+      }
+      const seenGeoIds = new Set<string>();
+      for (const geoComp of sceneDesc.geos) {
+        seenGeoIds.add(geoComp.id);
+        let entry = sopMeshes.get(geoComp.id);
+        const builtGeo = buildSopGeometry(geoComp.shape);
+        const matKey = geoComp.material
+          ? `${geoComp.material.kind}:${geoComp.material.wireframe}:${geoComp.material.textureNodeId ?? ""}`
+          : "default";
+        if (!entry || entry.geoKey !== builtGeo.key) {
+          if (entry) {
+            sopGeoGroup.remove(entry.mesh);
+            entry.mesh.geometry.dispose();
+            (entry.mesh.material as Material).dispose();
+          }
+          const posAttr = builtGeo.geo.getAttribute("position") as BufferAttribute;
+          const basePos = new Float32Array(posAttr.array as Float32Array);
+          const mesh = new Mesh(builtGeo.geo, buildSopMaterial(geoComp.material));
+          sopGeoGroup.add(mesh);
+          entry = { mesh, basePos, geoKey: builtGeo.key, matKey };
+          sopMeshes.set(geoComp.id, entry);
+        } else {
+          builtGeo.geo.dispose();
+          if (entry.matKey !== matKey) {
+            (entry.mesh.material as Material).dispose();
+            entry.mesh.material = buildSopMaterial(geoComp.material);
+            entry.matKey = matKey;
+          } else if (geoComp.material) {
+            const m = entry.mesh.material as MeshStandardMaterial & MeshPhongMaterial & MeshBasicMaterial;
+            m.color?.set(geoComp.material.color);
+            m.wireframe = geoComp.material.wireframe;
+            m.opacity = geoComp.material.opacity;
+            m.transparent = geoComp.material.opacity < 0.99;
+            if ("shininess" in m && geoComp.material.kind === "phong") m.shininess = geoComp.material.shininess;
+            if ("metalness" in m && geoComp.material.kind === "pbr") {
+              m.metalness = geoComp.material.metalness;
+              m.roughness = geoComp.material.roughness;
+              m.emissiveIntensity = geoComp.material.emissiveIntensity;
+            }
+            const tex = nodeMediaHub.getThreeTexture(geoComp.material.textureNodeId);
+            if (m.map !== tex) {
+              m.map = tex;
+              m.needsUpdate = true;
+            }
+          }
+        }
+        entry.mesh.visible = geoComp.visible;
+        entry.mesh.position.set(geoComp.shape.tx, geoComp.shape.ty, geoComp.shape.tz);
+        entry.mesh.rotation.set(
+          geoComp.shape.rx,
+          geoComp.shape.ry + geoComp.autoSpin * secNow,
+          geoComp.shape.rz,
+        );
+        entry.mesh.scale.setScalar(geoComp.shape.scale * geoComp.scale);
+        if (geoComp.shape.noiseAmp !== 0) {
+          const posAttr = entry.mesh.geometry.getAttribute("position") as BufferAttribute;
+          const arr = posAttr.array as Float32Array;
+          const base = entry.basePos;
+          const amp = geoComp.shape.noiseAmp;
+          const freq = geoComp.shape.noiseFreq;
+          const phase = secNow * geoComp.shape.noiseSpeed;
+          for (let i = 0; i < base.length; i += 3) {
+            const bx = base[i]!;
+            const by = base[i + 1]!;
+            const bz = base[i + 2]!;
+            const n = Math.sin(bx * freq + phase) * Math.cos(by * freq - phase * 0.7) * Math.sin(bz * freq + phase * 0.5);
+            const len = Math.hypot(bx, by, bz) || 1;
+            arr[i] = bx + (bx / len) * n * amp;
+            arr[i + 1] = by + (by / len) * n * amp;
+            arr[i + 2] = bz + (bz / len) * n * amp;
+          }
+          posAttr.needsUpdate = true;
+          entry.mesh.geometry.computeVertexNormals();
+        }
+      }
+      for (const [id, entry] of sopMeshes) {
+        if (!seenGeoIds.has(id)) {
+          sopGeoGroup.remove(entry.mesh);
+          entry.mesh.geometry.dispose();
+          (entry.mesh.material as Material).dispose();
+          sopMeshes.delete(id);
+        }
+      }
       if (attribute?.count !== runtime.pointCount) {
         geometry.dispose();
         geometry = new BufferGeometry();
@@ -947,8 +1154,9 @@ export function Viewport({
       }
 
       controls.enabled = !(show3dNodes && edit3dEnabled.current);
-      controls.autoRotate = !!autoRotateEnabled.current && controls.enabled;
-      controls.autoRotateSpeed = 1.6;
+      const camAuto = sceneDesc.camera?.autoRotate ?? false;
+      controls.autoRotate = (!!autoRotateEnabled.current || camAuto) && controls.enabled;
+      controls.autoRotateSpeed = sceneDesc.camera ? sceneDesc.camera.speed * 1.6 : 1.6;
       controls.update();
       renderer.render(scene, camera);
       if (show3dNodes) cssRenderer.render(scene, camera);
@@ -968,6 +1176,11 @@ export function Viewport({
       alive = false;
       window.removeEventListener("zence:load-model", onExternalLoadModel);
       disposeModels(models);
+      for (const entry of sopMeshes.values()) {
+        entry.mesh.geometry.dispose();
+        (entry.mesh.material as Material).dispose();
+      }
+      sopMeshes.clear();
       bodyLineGeo.dispose();
       bodyLines.material.dispose();
       handLineGeo.dispose();
