@@ -276,7 +276,7 @@ export function FloatingAssistant({
         closeTimerRef.current = window.setTimeout(() => {
           setPopPhase("closed");
           closeTimerRef.current = null;
-        }, 215);
+        }, 175);
       }
     }
   }, [open, reducedMotion]);
@@ -710,12 +710,6 @@ export function FloatingAssistant({
     window.addEventListener("pointercancel", onUp);
   }
 
-  // Vector relativo desde el centro de la ventana al centro del botón orgánico
-  const winW = winSize.width;
-  const winH = winSize.height;
-  const launchDx = Math.round(handlePos.x + HANDLE_W / 2 - (winPos.x + winW / 2));
-  const launchDy = Math.round(handlePos.y + HANDLE_H / 2 - (winPos.y + winH / 2));
-
   return (
     <>
       <button
@@ -758,9 +752,7 @@ export function FloatingAssistant({
             top: `${winPos.y}px`,
             width: `${winSize.width}px`,
             height: `${winSize.height}px`,
-            "--zence-dx": `${launchDx}px`,
-            "--zence-dy": `${launchDy}px`,
-          } as React.CSSProperties}
+          }}
           onAnimationEnd={(e) => {
             if (e.target === winRef.current && popPhase === "entering") {
               setPopPhase("open");
