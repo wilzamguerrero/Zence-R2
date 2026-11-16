@@ -4,25 +4,43 @@ import {
   Calculator,
   CircleDot,
   Copy,
+  Disc,
   Link2Off,
+  Palette,
   Radio,
+  RotateCw,
+  Sparkles,
+  Timer,
   Trash2,
+  Waves,
 } from "lucide-react";
 import { useState } from "react";
 import type {
   Edge,
+  HydraBuffer,
   LfoWave,
   MathOp,
   Node,
   Project,
 } from "../../../../packages/engine/project.ts";
-import { nodeTypes, portLabels } from "../studio.ts";
-import type { ViewSettings } from "../studio.ts";
+import { cablesSwatches, nodeTypes, portLabels } from "../studio.ts";
+import type { NodeMeta, ViewSettings } from "../studio.ts";
 
-const icons = {
+const icons: Record<Node["kind"], typeof Activity> = {
   "control.number": Radio,
   "signal.lfo": Activity,
+  "signal.timer": Timer,
+  "signal.smooth": Waves,
+  "signal.mapRange": Calculator,
   "signal.math": Calculator,
+  "hydra.osc": Waves,
+  "hydra.noise": Sparkles,
+  "hydra.shape": Disc,
+  "hydra.kaleid": Sparkles,
+  "hydra.rotate": RotateCw,
+  "hydra.modulate": Activity,
+  "hydra.color": Palette,
+  "hydra.out": Box,
   "simulation.particles": CircleDot,
   "scene.points": Box,
 };
@@ -30,9 +48,11 @@ const icons = {
 type InspectorProps = {
   project: Project;
   node: Node | undefined;
+  meta?: NodeMeta;
   liveValue?: number;
   view: ViewSettings;
   onNode: (node: Node) => void;
+  onNodeMeta: (id: string, patch: Partial<NodeMeta>) => void;
   onView: (patch: Partial<ViewSettings>) => void;
   onUnlink: (edge: Edge) => void;
   onRemove: (id: string) => void;
@@ -42,9 +62,11 @@ type InspectorProps = {
 export function Inspector({
   project,
   node,
+  meta,
   liveValue,
   view,
   onNode,
+  onNodeMeta,
   onView,
   onUnlink,
   onRemove,
@@ -57,6 +79,9 @@ export function Inspector({
   const isSignal =
     node?.kind === "control.number" ||
     node?.kind === "signal.lfo" ||
+    node?.kind === "signal.timer" ||
+    node?.kind === "signal.smooth" ||
+    node?.kind === "signal.mapRange" ||
     node?.kind === "signal.math";
 
   function copyRef(id: string) {
@@ -65,17 +90,44 @@ export function Inspector({
     setTimeout(() => setCopied(false), 1200);
   }
 
+  function numInput(
+    label: string,
+    value: number,
+    onChange: (next: number) => void,
+    opts?: { min?: number; max?: number; step?: number },
+  ) {
+    return (
+      <label className="field">
+        {label}
+        <input
+          type="number"
+          min={opts?.min}
+          max={opts?.max}
+          step={opts?.step ?? 0.1}
+          value={value}
+          onChange={(e) => {
+            const v = Number(e.target.value);
+            if (Number.isFinite(v)) onChange(v);
+          }}
+        />
+      </label>
+    );
+  }
+
   return (
-    <div className="inspector-body" aria-label="Inspector de nodo">
+    <div className="inspector-body" aria-label="Inspector de operador">
       {node && description ? (
         <>
           <div className="inspector-title">
-            <span className="node-icon">
+            <span
+              className="node-icon"
+              style={meta?.color ? { color: meta.color } : undefined}
+            >
               <Icon size={17} />
             </span>
             <div className="inspector-title-text">
-              <small>{description.category} · {node.id}</small>
-              <h3>{description.name}</h3>
+              <small>{description.namespace} · {node.id}</small>
+              <h3>Op {description.name}</h3>
             </div>
             {isSignal && (
               <button
@@ -89,10 +141,16 @@ export function Inspector({
               </button>
             )}
           </div>
-          {copied && <div className="inspector-copied">Copiado: control(&quot;{node.id}&quot;)</div>}
+          <p className="inspector-desc">{description.description}</p>
+          {copied && (
+            <div className="inspector-copied">
+              Copiado: control(&quot;{node.id}&quot;)
+            </div>
+          )}
 
           <div className="inspector-section">
             <h4>Parámetros</h4>
+
             {node.kind === "control.number" && (
               <>
                 <label className="range-label" htmlFor="intensity">
@@ -157,12 +215,6 @@ export function Inspector({
 
             {node.kind === "signal.lfo" && (
               <>
-                {Number.isFinite(liveValue) && (
-                  <div className="range-label">
-                    <span>Salida</span>
-                    <output>{liveValue!.toFixed(2)}</output>
-                  </div>
-                )}
                 <label className="field">
                   Onda
                   <select
@@ -178,44 +230,65 @@ export function Inspector({
                     <option value="square">Cuadrada</option>
                   </select>
                 </label>
+                {numInput("Frec. (Hz)", node.rate, (rate) => {
+                  if (rate >= 0 && rate <= 100) onNode({ ...node, rate });
+                }, { min: 0, max: 20, step: 0.1 })}
+                {numInput("Amplitud", node.amplitude, (amplitude) =>
+                  onNode({ ...node, amplitude }),
+                )}
+                {numInput("Offset", node.offset, (offset) =>
+                  onNode({ ...node, offset }),
+                )}
+              </>
+            )}
+
+            {node.kind === "signal.timer" &&
+              numInput("Velocidad", node.speed, (speed) =>
+                onNode({ ...node, speed }),
+              )}
+
+            {node.kind === "signal.smooth" && (
+              <label className="field">
+                Suavizado
+                <input
+                  type="range"
+                  min={0}
+                  max={0.98}
+                  step={0.02}
+                  value={node.smoothing}
+                  onChange={(e) =>
+                    onNode({ ...node, smoothing: Number(e.target.value) })
+                  }
+                />
+              </label>
+            )}
+
+            {node.kind === "signal.mapRange" && (
+              <>
+                <div className="field-pair">
+                  {numInput("In Min", node.inMin, (inMin) =>
+                    onNode({ ...node, inMin }),
+                  )}
+                  {numInput("In Max", node.inMax, (inMax) =>
+                    onNode({ ...node, inMax }),
+                  )}
+                </div>
+                <div className="field-pair">
+                  {numInput("Out Min", node.outMin, (outMin) =>
+                    onNode({ ...node, outMin }),
+                  )}
+                  {numInput("Out Max", node.outMax, (outMax) =>
+                    onNode({ ...node, outMax }),
+                  )}
+                </div>
                 <label className="field">
-                  Frec. (Hz)
+                  Clamp
                   <input
-                    type="number"
-                    min={0}
-                    max={20}
-                    step={0.1}
-                    value={node.rate}
-                    onChange={(e) => {
-                      const rate = Number(e.target.value);
-                      if (Number.isFinite(rate) && rate >= 0 && rate <= 100) {
-                        onNode({ ...node, rate });
-                      }
-                    }}
-                  />
-                </label>
-                <label className="field">
-                  Amplitud
-                  <input
-                    type="number"
-                    step={0.1}
-                    value={node.amplitude}
-                    onChange={(e) => {
-                      const amplitude = Number(e.target.value);
-                      if (Number.isFinite(amplitude)) onNode({ ...node, amplitude });
-                    }}
-                  />
-                </label>
-                <label className="field">
-                  Offset
-                  <input
-                    type="number"
-                    step={0.1}
-                    value={node.offset}
-                    onChange={(e) => {
-                      const offset = Number(e.target.value);
-                      if (Number.isFinite(offset)) onNode({ ...node, offset });
-                    }}
+                    type="checkbox"
+                    checked={node.clamp}
+                    onChange={(e) =>
+                      onNode({ ...node, clamp: e.target.checked })
+                    }
                   />
                 </label>
               </>
@@ -223,12 +296,6 @@ export function Inspector({
 
             {node.kind === "signal.math" && (
               <>
-                {Number.isFinite(liveValue) && (
-                  <div className="range-label">
-                    <span>Salida</span>
-                    <output>{liveValue!.toFixed(2)}</output>
-                  </div>
-                )}
                 <label className="field">
                   Operación
                   <select
@@ -245,31 +312,79 @@ export function Inspector({
                     <option value="sin">Seno</option>
                   </select>
                 </label>
-                <label className="field">
-                  {node.op === "clamp" ? "Máximo" : "Factor"}
-                  <input
-                    type="number"
-                    step={0.1}
-                    value={node.factor}
-                    onChange={(e) => {
-                      const factor = Number(e.target.value);
-                      if (Number.isFinite(factor)) onNode({ ...node, factor });
-                    }}
-                  />
-                </label>
-                <label className="field">
-                  {node.op === "clamp" ? "Mínimo" : "Sesgo"}
-                  <input
-                    type="number"
-                    step={0.1}
-                    value={node.bias}
-                    onChange={(e) => {
-                      const bias = Number(e.target.value);
-                      if (Number.isFinite(bias)) onNode({ ...node, bias });
-                    }}
-                  />
-                </label>
+                {numInput(
+                  node.op === "clamp" ? "Máximo" : "Factor",
+                  node.factor,
+                  (factor) => onNode({ ...node, factor }),
+                )}
+                {numInput(
+                  node.op === "clamp" ? "Mínimo" : "Sesgo",
+                  node.bias,
+                  (bias) => onNode({ ...node, bias }),
+                )}
               </>
+            )}
+
+            {node.kind === "hydra.osc" && (
+              <>
+                {numInput("Frecuencia", node.freq, (freq) => onNode({ ...node, freq }), { step: 1 })}
+                {numInput("Sync", node.sync, (sync) => onNode({ ...node, sync }), { step: 0.02 })}
+                {numInput("Offset", node.offset, (offset) => onNode({ ...node, offset }), { step: 0.1 })}
+              </>
+            )}
+
+            {node.kind === "hydra.noise" && (
+              <>
+                {numInput("Escala", node.scale, (scale) => onNode({ ...node, scale }), { step: 0.5 })}
+                {numInput("Offset", node.offset, (offset) => onNode({ ...node, offset }), { step: 0.05 })}
+              </>
+            )}
+
+            {node.kind === "hydra.shape" && (
+              <>
+                {numInput("Lados", node.sides, (sides) => onNode({ ...node, sides }), { min: 1, step: 1 })}
+                {numInput("Radio", node.radius, (radius) => onNode({ ...node, radius }), { step: 0.05 })}
+                {numInput("Suavizado", node.smoothing, (smoothing) => onNode({ ...node, smoothing }), { min: 0, step: 0.01 })}
+              </>
+            )}
+
+            {node.kind === "hydra.kaleid" &&
+              numInput("Lados", node.sides, (sides) => onNode({ ...node, sides }), { min: 1, step: 1 })}
+
+            {node.kind === "hydra.rotate" && (
+              <>
+                {numInput("Ángulo", node.angle, (angle) => onNode({ ...node, angle }), { step: 0.1 })}
+                {numInput("Velocidad", node.speed, (speed) => onNode({ ...node, speed }), { step: 0.02 })}
+              </>
+            )}
+
+            {node.kind === "hydra.modulate" &&
+              numInput("Cantidad", node.amount, (amount) => onNode({ ...node, amount }), { step: 0.02 })}
+
+            {node.kind === "hydra.color" && (
+              <>
+                {numInput("Rojo (R)", node.r, (r) => onNode({ ...node, r }), { step: 0.05 })}
+                {numInput("Verde (G)", node.g, (g) => onNode({ ...node, g }), { step: 0.05 })}
+                {numInput("Azul (B)", node.b, (b) => onNode({ ...node, b }), { step: 0.05 })}
+              </>
+            )}
+
+            {node.kind === "hydra.out" && (
+              <label className="field">
+                Buffer
+                <select
+                  className="mode-select"
+                  value={node.buffer}
+                  onChange={(e) =>
+                    onNode({ ...node, buffer: e.target.value as HydraBuffer })
+                  }
+                >
+                  <option value="o0">o0 (Principal)</option>
+                  <option value="o1">o1</option>
+                  <option value="o2">o2</option>
+                  <option value="o3">o3</option>
+                </select>
+              </label>
             )}
 
             {node.kind === "simulation.particles" && (
@@ -337,14 +452,24 @@ export function Inspector({
               ))}
           </div>
 
+          {isSignal && Number.isFinite(liveValue) && (
+            <div className="inspector-section">
+              <h4>Output</h4>
+              <div className="range-label">
+                <span>Result</span>
+                <output>{liveValue!.toFixed(3)}</output>
+              </div>
+            </div>
+          )}
+
           <div className="inspector-section connections">
-            <h4>Entradas</h4>
+            <h4>Inputs</h4>
             {incoming.length > 0 ? (
               incoming.map((edge) => (
-                <div className="input-link" key={edge.to.port}>
+                <div className="input-link" key={`${edge.to.port}-${edge.from.node}`}>
                   <span>
                     {portLabels[edge.to.port] ?? edge.to.port}
-                    <small>{edge.from.node}</small>
+                    <small>× {edge.from.node}</small>
                   </span>
                   <button
                     className="icon-button"
@@ -360,6 +485,36 @@ export function Inspector({
             ) : (
               <p className="inspector-note">Sin entradas conectadas.</p>
             )}
+          </div>
+
+          <div className="inspector-section">
+            <h4>Misc</h4>
+            <div className="swatch-row" role="group" aria-label="Color del nodo">
+              {cablesSwatches.map((hex) => (
+                <button
+                  key={hex}
+                  type="button"
+                  className={`swatch-btn ${meta?.color === hex ? "is-active" : ""}`}
+                  style={{ background: hex }}
+                  aria-label={`Color ${hex}`}
+                  onClick={() => onNodeMeta(node.id, { color: hex })}
+                />
+              ))}
+              <button
+                type="button"
+                className="swatch-btn swatch-clear"
+                title="Color por defecto"
+                onClick={() => onNodeMeta(node.id, { color: undefined })}
+              >
+                ×
+              </button>
+            </div>
+            <textarea
+              className="node-comment"
+              placeholder="Comentario del operador…"
+              value={meta?.comment ?? ""}
+              onChange={(e) => onNodeMeta(node.id, { comment: e.target.value })}
+            />
           </div>
         </>
       ) : (

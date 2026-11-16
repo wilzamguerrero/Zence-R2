@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import demo from "../../examples/particles.zence.json" with { type: "json" };
 import { FixedClock, fixedStepSeconds } from "./clock.ts";
-import { ProjectRuntime } from "./project.ts";
+import { compileHydraCode, ProjectRuntime, readProject } from "./project.ts";
 
 test("different render rates produce the same simulation with the same seed and controls", () => {
   function run(fps: number) {
@@ -107,4 +107,45 @@ test("signal.lfo and signal.math drive particles deterministically across render
     () => new ProjectRuntime({ ...patch, nodes: [{ id: "bad", kind: "signal.math", op: "pow", factor: 1, bias: 0 }] }),
     /Invalid op/,
   );
+});
+
+test("cables-style timer, mapRange, smooth and hydra nodes compile deterministically", () => {
+  const patch = readProject({
+    schemaVersion: 1,
+    scene: "stage",
+    nodes: [
+      { id: "timer1", kind: "signal.timer", speed: 2 },
+      { id: "map1", kind: "signal.mapRange", inMin: 0, inMax: 2, outMin: 1, outMax: 5, clamp: true },
+      { id: "smooth1", kind: "signal.smooth", smoothing: 0.5 },
+      { id: "osc1", kind: "hydra.osc", freq: 9, sync: 0.08, offset: 0.4 },
+      { id: "kaleid1", kind: "hydra.kaleid", sides: 5 },
+      { id: "color1", kind: "hydra.color", r: 0.68, g: 0.4, b: 0.68 },
+      { id: "out1", kind: "hydra.out", buffer: "o0" },
+      { id: "particles", kind: "simulation.particles", seed: 12, count: 32 },
+      { id: "stage", kind: "scene.points" },
+    ],
+    edges: [
+      { from: { node: "timer1", port: "value" }, to: { node: "map1", port: "in" } },
+      { from: { node: "map1", port: "value" }, to: { node: "smooth1", port: "in" } },
+      { from: { node: "smooth1", port: "value" }, to: { node: "particles", port: "intensity" } },
+      { from: { node: "particles", port: "points" }, to: { node: "stage", port: "points" } },
+      { from: { node: "smooth1", port: "value" }, to: { node: "osc1", port: "mod" } },
+      { from: { node: "osc1", port: "tex" }, to: { node: "kaleid1", port: "tex" } },
+      { from: { node: "kaleid1", port: "tex" }, to: { node: "color1", port: "tex" } },
+      { from: { node: "color1", port: "tex" }, to: { node: "out1", port: "tex" } },
+    ],
+  });
+
+  const runtime = new ProjectRuntime(patch);
+  for (let i = 0; i < 30; i += 1) runtime.tick();
+  assert.ok(runtime.getNumber("timer1")! > 0);
+  assert.ok(runtime.getNumber("map1")! >= 1 && runtime.getNumber("map1")! <= 5);
+  assert.ok(runtime.getNumber("smooth1")! >= 1);
+
+  const compiled = compileHydraCode(patch);
+  assert.ok(compiled);
+  assert.match(compiled, /osc\(\(\) => 9 \+ control\("smooth1"\) \* 6, 0\.08, 0\.4\)/);
+  assert.match(compiled, /\.kaleid\(5\)/);
+  assert.match(compiled, /\.color\(0\.68, 0\.4, 0\.68\)/);
+  assert.match(compiled, /\.out\(o0\)/);
 });

@@ -308,16 +308,40 @@ h1 {
 }
 .graph-add {
   position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
 }
 .node-palette {
   position: absolute;
-  z-index: 8;
+  z-index: 10;
   top: 32px;
   right: 0;
-  width: 270px;
+  width: 300px;
   background: var(--panel-heading);
   border: 1px solid var(--line-bright);
-  box-shadow: 0 10px 26px #0009;
+  box-shadow: 0 12px 30px #000b;
+}
+.palette-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--shell);
+}
+.palette-tabs button {
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--muted);
+  font: 10px var(--font-mono);
+  padding: 2px 6px;
+}
+.palette-tabs button.is-active,
+.palette-tabs button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
 }
 .palette-search {
   display: flex;
@@ -1537,6 +1561,308 @@ h1 {
   color: var(--dim);
   border: 1px solid var(--line);
   padding: 1px 5px;
+}
+
+/* Rete.js v2 Node Editor (2D) */
+.rete-canvas {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  background-color: var(--graph);
+  background-image: radial-gradient(#32323a 1px, transparent 1px);
+  background-size: 18px 18px;
+}
+.rete-node {
+  width: 204px;
+  background: rgba(34, 34, 39, 0.96);
+  border: 1px solid var(--line-bright);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px #0007;
+  overflow: visible;
+  user-select: none;
+  color: var(--text);
+}
+.rete-node.is-selected {
+  border-color: var(--node-accent, var(--accent));
+  box-shadow: 0 0 0 1px var(--node-accent, var(--accent)), 0 8px 24px #000a;
+}
+.rete-node-bar {
+  height: 3px;
+  background: var(--node-accent, var(--accent));
+  border-radius: 5px 5px 0 0;
+}
+.rete-node-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 9px;
+  background: rgba(44, 44, 52, 0.85);
+  border-bottom: 1px solid var(--line);
+}
+.rete-node-icon {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--node-accent, var(--accent));
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.rete-node-titles {
+  min-width: 0;
+}
+.rete-node-titles small {
+  display: block;
+  font: 9px var(--font-mono);
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rete-node-titles strong {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.rete-node-sub {
+  padding: 3px 9px;
+  font: 9px var(--font-mono);
+  color: var(--dim);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.rete-inline-control {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 9px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+}
+.rete-inline-control output {
+  font: 10px var(--font-mono);
+  color: var(--accent);
+  min-width: 34px;
+  text-align: right;
+}
+.rete-ports {
+  padding: 4px 0;
+}
+.rete-port-row {
+  position: relative;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 10px;
+  font: 10px var(--font-mono);
+  color: var(--muted);
+}
+.rete-port-row.in {
+  justify-content: flex-start;
+}
+.rete-port-row.out {
+  justify-content: flex-end;
+}
+.rete-port-label {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+}
+.rete-port-row.in .rete-port-label:hover {
+  color: var(--warning);
+}
+.rete-port-value {
+  color: var(--signal);
+  font-size: 10px;
+  margin-right: auto;
+}
+.rete-socket {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid #1b1b20;
+  background: var(--signal);
+  cursor: crosshair;
+  transition: transform 0.12s ease;
+}
+.rete-socket:hover {
+  transform: scale(1.3);
+}
+.rete-socket-number {
+  background: #cf8acc;
+}
+.rete-socket-points {
+  background: #a58ae6;
+}
+.rete-socket-hydra {
+  background: #f0b35a;
+}
+
+.rete-wire {
+  overflow: visible !important;
+  position: absolute;
+  pointer-events: none;
+  width: 9999px;
+  height: 9999px;
+}
+.rete-wire path {
+  fill: none;
+  stroke-linecap: round;
+}
+.rete-wire-shadow {
+  stroke: #141418;
+  stroke-width: 6px;
+  opacity: 0.7;
+}
+.rete-wire-base {
+  stroke: currentColor;
+  stroke-width: 2.2px;
+  opacity: 0.75;
+}
+.rete-wire-flow {
+  stroke: #ffffff;
+  stroke-width: 1.8px;
+  stroke-dasharray: 4 14;
+  opacity: 0.65;
+  animation: reteFlow 1.1s linear infinite;
+}
+@keyframes reteFlow {
+  to {
+    stroke-dashoffset: -18;
+  }
+}
+.rete-wire-number {
+  color: #cf8acc;
+}
+.rete-wire-points {
+  color: #a58ae6;
+}
+.rete-wire-hydra {
+  color: #f0b35a;
+}
+
+/* Rete 3D Embedded Nodes (CSS3DRenderer in Three.js Viewport) */
+.css3d-surface {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  overflow: hidden;
+}
+.rete-3d-card {
+  width: 196px;
+  background: rgba(24, 24, 30, 0.92);
+  border: 1px solid var(--node-accent, var(--accent));
+  border-radius: 6px;
+  padding: 7px 9px;
+  color: var(--text);
+  font-family: var(--font-ui);
+  box-shadow: 0 10px 28px #000a;
+  user-select: none;
+}
+.rete-3d-card.is-selected {
+  box-shadow: 0 0 0 2px #fff, 0 10px 28px #000c;
+}
+.rete-3d-head {
+  cursor: grab;
+  border-bottom: 1px solid var(--line);
+  padding-bottom: 4px;
+  margin-bottom: 5px;
+}
+.rete-3d-head:active {
+  cursor: grabbing;
+}
+.rete-3d-ns {
+  display: block;
+  font: 9px var(--font-mono);
+  color: var(--node-accent, var(--accent));
+}
+.rete-3d-head strong {
+  display: block;
+  font-size: 12px;
+}
+.rete-3d-val {
+  font: 11px var(--font-mono);
+  color: var(--signal);
+  margin-bottom: 4px;
+}
+.rete-3d-param {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 6px;
+  font: 10px var(--font-mono);
+  color: var(--muted);
+}
+.rete-3d-param input {
+  width: 72px;
+  background: #141418;
+  border: 1px solid var(--line-bright);
+  color: var(--text);
+  padding: 2px 4px;
+  font: 10px var(--font-mono);
+}
+.edit-3d-pill {
+  position: absolute;
+  top: 38px;
+  right: 16px;
+  z-index: 5;
+  padding: 4px 10px;
+  background: rgba(20, 18, 24, 0.84);
+  backdrop-filter: blur(6px);
+  border: 1px solid var(--line-bright);
+  color: var(--text);
+  font: 11px var(--font-mono);
+}
+.edit-3d-pill.is-active {
+  border-color: var(--accent);
+  background: rgba(174, 104, 173, 0.25);
+}
+
+/* Cables.gl Inspector Misc */
+.inspector-desc {
+  margin: 0 10px 8px;
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.35;
+}
+.swatch-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-bottom: 7px;
+}
+.swatch-btn {
+  width: 16px;
+  height: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  padding: 0;
+}
+.swatch-btn.is-active {
+  outline: 2px solid #fff;
+  outline-offset: 1px;
+}
+.swatch-clear {
+  background: transparent;
+  color: var(--muted);
+  font: 11px var(--font-mono);
+  line-height: 1;
+}
+.node-comment {
+  width: 100%;
+  min-height: 46px;
+  background: var(--graph);
+  border: 1px solid var(--line);
+  color: var(--text);
+  padding: 5px 6px;
+  font: 11px var(--font-mono);
+  resize: vertical;
 }
 
 /* Responsive */

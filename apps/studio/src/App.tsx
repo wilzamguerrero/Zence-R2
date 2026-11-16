@@ -29,6 +29,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
+import { compileHydraCode } from "../../../packages/engine/project.ts";
 import type { Edge, Node, Project } from "../../../packages/engine/project.ts";
 import { fixedStepSeconds } from "../../../packages/engine/clock.ts";
 import { Assistant } from "./components/Assistant.tsx";
@@ -52,7 +53,7 @@ import {
   positionFor,
   saveDocument,
 } from "./studio.ts";
-import type { CueSlot, Position, StudioDocument, ViewSettings } from "./studio.ts";
+import type { CueSlot, NodeMeta, Position, StudioDocument, ViewSettings } from "./studio.ts";
 
 type PanelId = "graph" | "viewport" | "code" | "inspector";
 type PanelVisibility = Record<PanelId, boolean>;
@@ -114,7 +115,6 @@ export function App() {
   const [design, setDesign] = useState<StudioDocument>(initialDocument);
   const [playback] = useState(() => new Playback(initialDocument.project));
   const [selected, setSelected] = useState(initialDocument.project.nodes[0].id);
-  const [pending, setPending] = useState<Edge["from"] | null>(null);
   const [graphError, setGraphError] = useState("");
   const [notice, setNotice] = useState("");
   const [tick, setTick] = useState(initialTick);
@@ -281,12 +281,25 @@ export function App() {
     } catch (error) {
       setGraphError(messageFor(error));
     }
+    const compiledHydra = compileHydraCode(next);
     setDesign((current) => ({
       ...current,
       project: next,
+      code: compiledHydra ?? current.code,
       positions: position
         ? { ...current.positions, [position.id]: position.point }
         : current.positions,
+    }));
+    if (compiledHydra) live.run(compiledHydra);
+  }
+
+  function changeNodeMeta(id: string, patch: Partial<NodeMeta>) {
+    setDesign((current) => ({
+      ...current,
+      nodeMeta: {
+        ...current.nodeMeta,
+        [id]: { ...current.nodeMeta?.[id], ...patch },
+      },
     }));
   }
 
@@ -310,50 +323,45 @@ export function App() {
     applyTopology(nextProject);
   }
 
-  function connect(id: string, port: string, direction: "in" | "out") {
+  function connectEdge(newEdge: Edge) {
     setNotice("");
-    if (direction === "out") {
-      setPending(
-        pending?.node === id && pending.port === port
-          ? null
-          : { node: id, port },
-      );
-      return;
-    }
-    if (!pending) {
-      setNotice("Selecciona primero un puerto de salida.");
-      return;
-    }
-    if (pending.node === id) {
+    if (newEdge.from.node === newEdge.to.node) {
       setNotice("No puedes conectar un operador consigo mismo.");
       return;
     }
-    const source = project.nodes.find((item) => item.id === pending.node);
-    const target = project.nodes.find((item) => item.id === id);
+    const source = project.nodes.find((item) => item.id === newEdge.from.node);
+    const target = project.nodes.find((item) => item.id === newEdge.to.node);
     if (!source || !target) return;
-    const sourceType = nodeTypes[source.kind].outputType;
-    const targetType = nodeTypes[target.kind].inputType;
-    if (!sourceType || sourceType !== targetType) {
-      setNotice(
-        "Los puertos tienen tipos diferentes. Conecta señal con señal o puntos con puntos.",
-      );
+    const outSpec = nodeTypes[source.kind].outputs.find((o) => o.key === newEdge.from.port);
+    const inSpec = nodeTypes[target.kind].inputs.find((i) => i.key === newEdge.to.port);
+    if (!outSpec || !inSpec || outSpec.type !== inSpec.type) {
+      setNotice("Los puertos tienen tipos diferentes.");
       return;
     }
     const edges = project.edges.filter(
-      (edge) => edge.to.node !== id || edge.to.port !== port,
+      (edge) => edge.to.node !== newEdge.to.node || edge.to.port !== newEdge.to.port,
     );
     applyTopology({
       ...project,
-      edges: [...edges, { from: pending, to: { node: id, port } }],
+      edges: [...edges, newEdge],
     });
-    setPending(null);
+  }
+
+  function removeEdge(target: Edge) {
+    applyTopology({
+      ...project,
+      edges: project.edges.filter(
+        (edge) =>
+          edge.from.node !== target.from.node ||
+          edge.from.port !== target.from.port ||
+          edge.to.node !== target.to.node ||
+          edge.to.port !== target.to.port,
+      ),
+    });
   }
 
   function unlink(target: Edge) {
-    applyTopology({
-      ...project,
-      edges: project.edges.filter((edge) => edge !== target),
-    });
+    removeEdge(target);
   }
 
   function add(kind: Node["kind"]) {
@@ -372,6 +380,53 @@ export function App() {
     setSelected(created.id);
   }
 
+  function addHydraStarterChain() {
+    const created: Node[] = [];
+    const pool = [...project.nodes];
+    const osc = makeNode("hydra.osc", pool); pool.push(osc); created.push(osc);
+    const kaleid = makeNode("hydra.kaleid", pool); pool.push(kaleid); created.push(kaleid);
+    const color = makeNode("hydra.color", pool); pool.push(color); created.push(color);
+    const out = makeNode("hydra.out", pool); pool.push(out); created.push(out);
+
+    const baseY = 340;
+    const newPositions: Record<string, Position> = {
+      [osc.id]: { x: 40, y: baseY },
+      [kaleid.id]: { x: 295, y: baseY },
+      [color.id]: { x: 550, y: baseY },
+      [out.id]: { x: 805, y: baseY },
+    };
+    const newEdges: Edge[] = [
+      { from: { node: osc.id, port: "tex" }, to: { node: kaleid.id, port: "tex" } },
+      { from: { node: kaleid.id, port: "tex" }, to: { node: color.id, port: "tex" } },
+      { from: { node: color.id, port: "tex" }, to: { node: out.id, port: "tex" } },
+    ];
+    const sig = project.nodes.find((n) => n.kind === "control.number" || n.kind === "signal.lfo");
+    if (sig) {
+      newEdges.push({ from: { node: sig.id, port: "value" }, to: { node: osc.id, port: "mod" } });
+    }
+    const nextProject: Project = {
+      ...project,
+      nodes: [...project.nodes, ...created],
+      edges: [...project.edges, ...newEdges],
+    };
+    setNotice("Cadena Hydra nodal creada y compilada.");
+    try {
+      playback.replace(nextProject);
+      setGraphError("");
+    } catch (error) {
+      setGraphError(messageFor(error));
+    }
+    const compiledHydra = compileHydraCode(nextProject);
+    setDesign((current) => ({
+      ...current,
+      project: nextProject,
+      code: compiledHydra ?? current.code,
+      positions: { ...current.positions, ...newPositions },
+    }));
+    if (compiledHydra) live.run(compiledHydra);
+    setSelected(osc.id);
+  }
+
   function remove(id: string) {
     const nodes = project.nodes.filter((item) => item.id !== id);
     const scene =
@@ -387,9 +442,11 @@ export function App() {
       positions: Object.fromEntries(
         Object.entries(current.positions).filter(([key]) => key !== id),
       ),
+      nodeMeta: Object.fromEntries(
+        Object.entries(current.nodeMeta ?? {}).filter(([key]) => key !== id),
+      ),
     }));
     setSelected(nodes[0]?.id ?? "");
-    if (pending?.node === id) setPending(null);
   }
 
   function changeView(patch: Partial<ViewSettings>) {
@@ -481,7 +538,6 @@ export function App() {
       playback.replace(next.project, initialTick);
       setDesign(next);
       setSelected(next.project.nodes[0]?.id ?? "");
-      setPending(null);
       setGraphError("");
       setNotice("");
       setTick(playback.tick);
@@ -507,8 +563,12 @@ export function App() {
       { id: "code-run", group: "Hydra", label: "Ejecutar código Hydra", shortcut: "Ctrl+Enter", run: () => live.run() },
       { id: "code-mutate", group: "Hydra", label: "Mutar parámetros del código Hydra", run: () => { const m = mutateHydraCode(design.code); setDesign((c) => ({ ...c, code: m })); live.run(m); } },
       { id: "code-format", group: "Hydra", label: "Formatear código Hydra", shortcut: "Ctrl+Shift+F", run: () => setDesign((c) => ({ ...c, code: formatHydraCode(c.code) })) },
-      { id: "add-lfo", group: "Operador", label: "Añadir Oscilador LFO", run: () => add("signal.lfo") },
-      { id: "add-math", group: "Operador", label: "Añadir Operador Math / Map", run: () => add("signal.math") },
+      { id: "add-lfo", group: "Operador", label: "Añadir Oscilador LFO (Ops.Anim.LFO)", run: () => add("signal.lfo") },
+      { id: "add-timer", group: "Operador", label: "Añadir Temporizador (Ops.Anim.Timer)", run: () => add("signal.timer") },
+      { id: "add-smooth", group: "Operador", label: "Añadir Suavizador (Ops.Anim.Smooth)", run: () => add("signal.smooth") },
+      { id: "add-maprange", group: "Operador", label: "Añadir MapRange (Ops.Math.MapRange)", run: () => add("signal.mapRange") },
+      { id: "add-math", group: "Operador", label: "Añadir Operador Math (Ops.Math.Op)", run: () => add("signal.math") },
+      { id: "add-hydra-chain", group: "Hydra", label: "Crear cadena nodal Hydra (Osc → Kaleid → Color → Out)", run: addHydraStarterChain },
       { id: "add-control", group: "Operador", label: "Añadir Control numérico", run: () => add("control.number") },
       { id: "add-particles", group: "Operador", label: "Añadir Emisor de partículas", run: () => add("simulation.particles") },
       { id: "layout-graph", group: "Grafo", label: "Auto-ordenar grafo de operadores", run: () => setDesign((c) => ({ ...c, positions: autoLayout(c.project.nodes, c.project.edges) })) },
@@ -564,19 +624,13 @@ export function App() {
           </div>
           <div className="project-title">
             <span className="title-rule" aria-hidden="true" />
-            <h1>{design.title}</h1>
+            <h1>dev by wilzamguerrero</h1>
           </div>
-          <div className="project-status" data-error={!!graphError}>
-            {graphError ? (
-              <>
-                <AlertCircle size={13} /> Grafo pendiente
-              </>
-            ) : (
-              <>
-                <span className="status-dot" /> Grafo válido
-              </>
-            )}
-          </div>
+          {graphError && (
+            <div className="project-status" data-error="true">
+              <AlertCircle size={13} /> Grafo pendiente
+            </div>
+          )}
         </div>
 
         <nav className="topbar-panels" aria-label="Visibilidad de paneles">
@@ -725,19 +779,22 @@ export function App() {
         <Graph
           project={project}
           positions={design.positions}
+          nodeMeta={design.nodeMeta}
           values={liveValues}
           selected={selected}
-          pending={pending}
           hidden={!panels.graph}
           onSelect={setSelected}
+          onChangeNode={changeNode}
           onMove={(id, point) =>
             setDesign((current) => ({
               ...current,
               positions: { ...current.positions, [id]: point },
             }))
           }
-          onPort={connect}
+          onConnectEdge={connectEdge}
+          onRemoveEdge={removeEdge}
           onAdd={add}
+          onAddHydraChain={addHydraStarterChain}
           onDelete={remove}
           onLayout={() =>
             setDesign((current) => ({
@@ -745,7 +802,6 @@ export function App() {
               positions: autoLayout(current.project.nodes, current.project.edges),
             }))
           }
-          onCancel={() => setPending(null)}
         />
 
         {hasLeftSplitter && (
@@ -766,6 +822,12 @@ export function App() {
         >
           <Viewport
             playback={playback}
+            project={project}
+            nodeMeta={design.nodeMeta}
+            selectedNodeId={selected}
+            onSelectNode={setSelected}
+            onChangeNode={changeNode}
+            onMoveNode3D={(id, pos3d) => changeNodeMeta(id, { pos3d })}
             view={design.view}
             playing={playing}
             hidden={!panels.viewport}
@@ -985,9 +1047,11 @@ export function App() {
           <Inspector
             project={project}
             node={node}
+            meta={node ? design.nodeMeta?.[node.id] : undefined}
             liveValue={node ? liveValues[node.id] : undefined}
             view={design.view}
             onNode={changeNode}
+            onNodeMeta={changeNodeMeta}
             onView={changeView}
             onUnlink={unlink}
             onRemove={remove}

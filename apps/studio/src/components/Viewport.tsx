@@ -8,20 +8,19 @@ import {
   MoveUpRight,
   Orbit,
   RotateCcw,
+  Workflow,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import {
-  CanvasTexture,
-  PlaneGeometry,
-  MeshBasicMaterial,
-  DoubleSide,
   AmbientLight,
-  DirectionalLight,
   Box3,
-  Mesh,
   BufferAttribute,
   BufferGeometry,
+  CanvasTexture,
   Color,
+  CubicBezierCurve3,
+  DirectionalLight,
+  DoubleSide,
   DynamicDrawUsage,
   EdgesGeometry,
   GridHelper,
@@ -29,7 +28,10 @@ import {
   Line,
   LineBasicMaterial,
   LineSegments,
+  Mesh,
+  MeshBasicMaterial,
   PerspectiveCamera,
+  PlaneGeometry,
   Points,
   Scene,
   ShaderMaterial,
@@ -37,12 +39,15 @@ import {
   Vector3,
   WebGLRenderer,
 } from "three";
+import { CSS3DObject, CSS3DRenderer } from "three/addons/renderers/CSS3DRenderer.js";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { OBJLoader } from "three/addons/loaders/OBJLoader.js";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import type { ReactNode, RefObject } from "react";
+import type { Node, Project } from "../../../../packages/engine/project.ts";
 import type { Playback } from "../playback.ts";
-import type { ViewSettings } from "../studio.ts";
+import { defaultPosition3D, nodeTypes } from "../studio.ts";
+import type { NodeMeta, Position3D, ViewSettings } from "../studio.ts";
 
 const vertexShader = `
   uniform float pointSize;
@@ -68,6 +73,14 @@ const fragmentShader = `
   }
 `;
 
+const categoryHex: Record<string, string> = {
+  Control: "#ae68ad",
+  Anim: "#58c4dc",
+  Math: "#6ed491",
+  Hydra: "#f0b35a",
+  Scene: "#cfb7cf",
+};
+
 function addOrbit(
   guides: Group,
   radius: number,
@@ -90,6 +103,12 @@ function addOrbit(
 
 type ViewportProps = {
   playback: Playback;
+  project: Project;
+  nodeMeta?: Record<string, NodeMeta>;
+  selectedNodeId?: string;
+  onSelectNode?: (id: string) => void;
+  onChangeNode?: (node: Node) => void;
+  onMoveNode3D?: (id: string, pos: Position3D) => void;
   view: ViewSettings;
   playing: boolean;
   hidden?: boolean;
@@ -112,6 +131,12 @@ type ViewportProps = {
 
 export function Viewport({
   playback,
+  project,
+  nodeMeta,
+  selectedNodeId,
+  onSelectNode,
+  onChangeNode,
+  onMoveNode3D,
   view,
   playing,
   hidden,
@@ -138,17 +163,59 @@ export function Viewport({
   const [failure, setFailure] = useState("");
   const [ready, setReady] = useState(false);
   const [autoRotate, setAutoRotate] = useState(false);
+  const [nodes3d, setNodes3d] = useState(false);
+  const [edit3d, setEdit3d] = useState(false);
+
   const modelInput = useRef<HTMLInputElement>(null);
   const loadModel = useRef<(file: File) => void>(() => {});
   const resetCamera = useRef<() => void>(() => {});
+  const sync3dScene = useRef<() => void>(() => {});
+
+  const latestProps = useRef({
+    project,
+    nodeMeta,
+    selectedNodeId,
+    onSelectNode,
+    onChangeNode,
+    onMoveNode3D,
+    mode,
+  });
+  latestProps.current = {
+    project,
+    nodeMeta,
+    selectedNodeId,
+    onSelectNode,
+    onChangeNode,
+    onMoveNode3D,
+    mode,
+  };
+
   const visualSettings = useRef(view);
   const textureEnabled = useRef(texture);
   const autoRotateEnabled = useRef(autoRotate);
+  const nodes3dEnabled = useRef(nodes3d);
+  const edit3dEnabled = useRef(edit3d);
   textureEnabled.current = texture;
   autoRotateEnabled.current = autoRotate;
+  nodes3dEnabled.current = nodes3d;
+  edit3dEnabled.current = edit3d;
+
   useEffect(() => {
     visualSettings.current = view;
   }, [view]);
+
+  // Ctrl+Q toggles 3D node edit mode vs Orbit camera mode (like Rete.js 3D embedding)
+  useEffect(() => {
+    function onKeyDown(e: KeyboardEvent) {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "q") {
+        e.preventDefault();
+        setNodes3d(true);
+        setEdit3d((v) => !v);
+      }
+    }
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
 
   useEffect(() => {
     const host = mount.current!;
@@ -171,9 +238,14 @@ export function Viewport({
     );
     host.append(renderer.domElement);
 
+    const cssRenderer = new CSS3DRenderer();
+    cssRenderer.domElement.className = "css3d-surface";
+    host.append(cssRenderer.domElement);
+
     const theme = getComputedStyle(host);
     const palette = (name: string, fallback: string) =>
       new Color(theme.getPropertyValue(name).trim() || fallback);
+
     const videoCanvas = document.createElement("canvas");
     videoCanvas.width = 960;
     videoCanvas.height = 540;
@@ -190,6 +262,7 @@ export function Viewport({
       new LineBasicMaterial({ color: palette("--accent", "#ae68ad"), transparent: true, opacity: 0.7 }),
     );
     screen.add(screenFrame);
+
     const scene = new Scene();
     scene.add(screen);
     scene.background = palette("--viewport-bg", "#171a17");
@@ -222,8 +295,193 @@ export function Viewport({
     const light = new DirectionalLight(0xffffff, 3);
     light.position.set(5, 6, 4);
     scene.add(light);
+
     const models = new Group();
     scene.add(models);
+
+    const cssGroup = new Group();
+    const cables3dGroup = new Group();
+    scene.add(cssGroup);
+    scene.add(cables3dGroup);
+
+    const liveValueEls = new Map<string, HTMLElement>();
+    const nodeObjects = new Map<string, CSS3DObject>();
+
+    function rebuild3DCables() {
+      cables3dGroup.children.forEach((child) => {
+        const line = child as Line<BufferGeometry, LineBasicMaterial>;
+        line.geometry.dispose();
+        line.material.dispose();
+      });
+      cables3dGroup.clear();
+
+      const { project: curProj } = latestProps.current;
+      for (const edge of curProj.edges) {
+        const srcObj = nodeObjects.get(edge.from.node);
+        const dstObj = nodeObjects.get(edge.to.node);
+        if (!srcObj || !dstObj) continue;
+        const p0 = srcObj.position.clone().add(new Vector3(0.95, 0, 0));
+        const p3 = dstObj.position.clone().add(new Vector3(-0.95, 0, 0));
+        const span = Math.max(1.2, p0.distanceTo(p3) * 0.4);
+        const p1 = p0.clone().add(new Vector3(span, 0, 0.25));
+        const p2 = p3.clone().add(new Vector3(-span, 0, 0.25));
+        const curve = new CubicBezierCurve3(p0, p1, p2, p3);
+        const pts = curve.getPoints(24);
+        const lineColor =
+          edge.from.port === "points"
+            ? "#c9a6ca"
+            : edge.from.port === "tex"
+              ? "#f0b35a"
+              : "#cf8acc";
+        const line = new Line(
+          new BufferGeometry().setFromPoints(pts),
+          new LineBasicMaterial({ color: lineColor, transparent: true, opacity: 0.9 }),
+        );
+        cables3dGroup.add(line);
+      }
+    }
+
+    sync3dScene.current = () => {
+      liveValueEls.clear();
+      nodeObjects.clear();
+      cssGroup.clear();
+
+      if (!nodes3dEnabled.current) {
+        rebuild3DCables();
+        return;
+      }
+
+      const {
+        project: curProj,
+        nodeMeta: curMeta,
+        selectedNodeId: curSelected,
+      } = latestProps.current;
+
+      curProj.nodes.forEach((node, index) => {
+        const spec = nodeTypes[node.kind];
+        const accent = curMeta?.[node.id]?.color || categoryHex[spec.category] || "#ae68ad";
+        const pos = curMeta?.[node.id]?.pos3d ?? defaultPosition3D(index, curProj.nodes.length);
+
+        const el = document.createElement("div");
+        el.className = `rete-3d-card ${curSelected === node.id ? "is-selected" : ""}`;
+        el.style.setProperty("--node-accent", accent);
+
+        const head = document.createElement("div");
+        head.className = "rete-3d-head";
+        head.innerHTML = `<span class="rete-3d-ns">${spec.namespace}</span><strong>${spec.name} · ${node.id}</strong>`;
+        el.appendChild(head);
+
+        const valRow = document.createElement("div");
+        valRow.className = "rete-3d-val";
+        const outEl = document.createElement("output");
+        const initialVal = playback.runtime.getNumber(node.id);
+        outEl.textContent = Number.isFinite(initialVal) ? initialVal!.toFixed(2) : spec.category;
+        valRow.appendChild(outEl);
+        liveValueEls.set(node.id, outEl);
+        el.appendChild(valRow);
+
+        // Interactive live controls embedded directly in 3D space
+        if (node.kind === "control.number") {
+          const slider = document.createElement("input");
+          slider.type = "range";
+          slider.min = String(node.min);
+          slider.max = String(node.max);
+          slider.step = "any";
+          slider.value = String(node.initial);
+          slider.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+          slider.addEventListener("input", () => {
+            const v = Number(slider.value);
+            outEl.textContent = v.toFixed(2);
+            latestProps.current.onChangeNode?.({ ...node, initial: v });
+          });
+          el.appendChild(slider);
+        } else if (node.kind === "signal.lfo") {
+          const rateWrap = document.createElement("label");
+          rateWrap.className = "rete-3d-param";
+          rateWrap.innerHTML = `<span>Hz</span>`;
+          const rateInput = document.createElement("input");
+          rateInput.type = "number";
+          rateInput.step = "0.1";
+          rateInput.min = "0";
+          rateInput.max = "20";
+          rateInput.value = String(node.rate);
+          rateInput.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+          rateInput.addEventListener("change", () => {
+            const rate = Number(rateInput.value);
+            if (Number.isFinite(rate) && rate >= 0 && rate <= 100) {
+              latestProps.current.onChangeNode?.({ ...node, rate });
+            }
+          });
+          rateWrap.appendChild(rateInput);
+          el.appendChild(rateWrap);
+        } else if (node.kind === "hydra.osc" || node.kind === "hydra.kaleid") {
+          const key = node.kind === "hydra.osc" ? "freq" : "sides";
+          const wrap = document.createElement("label");
+          wrap.className = "rete-3d-param";
+          wrap.innerHTML = `<span>${key}</span>`;
+          const num = document.createElement("input");
+          num.type = "number";
+          num.step = "1";
+          num.value = String(node.kind === "hydra.osc" ? node.freq : node.sides);
+          num.addEventListener("pointerdown", (ev) => ev.stopPropagation());
+          num.addEventListener("change", () => {
+            const val = Number(num.value);
+            if (!Number.isFinite(val)) return;
+            if (node.kind === "hydra.osc") latestProps.current.onChangeNode?.({ ...node, freq: val });
+            else latestProps.current.onChangeNode?.({ ...node, sides: val });
+          });
+          wrap.appendChild(num);
+          el.appendChild(wrap);
+        }
+
+        const obj = new CSS3DObject(el);
+        obj.position.set(pos.x, pos.y, pos.z);
+        obj.rotation.y = Math.atan2(-pos.x, 9);
+        obj.scale.setScalar(0.011);
+
+        // Dragging 3D node header in Edit mode
+        head.addEventListener("pointerdown", (ev) => {
+          ev.stopPropagation();
+          latestProps.current.onSelectNode?.(node.id);
+          if (!edit3dEnabled.current) return;
+          const startX = ev.clientX;
+          const startY = ev.clientY;
+          const startPos = obj.position.clone();
+          const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+          const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+          const scalePerPx = 0.014;
+
+          function onMove(moveEv: PointerEvent) {
+            const dx = (moveEv.clientX - startX) * scalePerPx;
+            const dy = -(moveEv.clientY - startY) * scalePerPx;
+            const nextPos = startPos
+              .clone()
+              .addScaledVector(right, dx)
+              .addScaledVector(up, dy);
+            obj.position.copy(nextPos);
+            obj.rotation.y = Math.atan2(-nextPos.x, 9);
+            rebuild3DCables();
+          }
+          function onUp() {
+            window.removeEventListener("pointermove", onMove);
+            window.removeEventListener("pointerup", onUp);
+            latestProps.current.onMoveNode3D?.(node.id, {
+              x: Number(obj.position.x.toFixed(2)),
+              y: Number(obj.position.y.toFixed(2)),
+              z: Number(obj.position.z.toFixed(2)),
+            });
+          }
+          window.addEventListener("pointermove", onMove);
+          window.addEventListener("pointerup", onUp);
+        });
+
+        cssGroup.add(obj);
+        nodeObjects.set(node.id, obj);
+      });
+
+      rebuild3DCables();
+    };
+
     let alive = true;
     let request = 0;
     function disposeModels(group: Group) {
@@ -263,11 +521,11 @@ export function Viewport({
         const center = bounds.getCenter(new Vector3());
         const size = bounds.getSize(new Vector3());
         model.position.sub(center);
-        const container = new Group();
-        container.add(model);
-        container.scale.setScalar(4 / Math.max(size.x, size.y, size.z, 0.01));
+        const containerGroup = new Group();
+        containerGroup.add(model);
+        containerGroup.scale.setScalar(4 / Math.max(size.x, size.y, size.z, 0.01));
         disposeModels(models);
-        models.add(container);
+        models.add(containerGroup);
         setFailure("");
       } catch (error) {
         setFailure(
@@ -296,6 +554,7 @@ export function Viewport({
       camera.aspect = width / height;
       camera.updateProjectionMatrix();
       renderer.setSize(width, height, false);
+      cssRenderer.setSize(width, height);
     };
     const observer = new ResizeObserver(resize);
     observer.observe(host);
@@ -360,10 +619,29 @@ export function Viewport({
         videoCanvas.getContext("2d")!.drawImage(bitmap.current, 0, 0, 960, 540);
         videoTexture.needsUpdate = true;
       }
-      controls.autoRotate = !!autoRotateEnabled.current;
+
+      const show3dNodes =
+        nodes3dEnabled.current && latestProps.current.mode !== "hydra";
+      cssGroup.visible = show3dNodes;
+      cables3dGroup.visible = show3dNodes;
+      cssRenderer.domElement.style.display = show3dNodes ? "block" : "none";
+      cssRenderer.domElement.style.pointerEvents =
+        show3dNodes && edit3dEnabled.current ? "auto" : "none";
+
+      if (show3dNodes) {
+        for (const [id, el] of liveValueEls) {
+          const val = runtime.getNumber(id);
+          if (Number.isFinite(val)) el.textContent = val!.toFixed(2);
+        }
+      }
+
+      controls.enabled = !(show3dNodes && edit3dEnabled.current);
+      controls.autoRotate = !!autoRotateEnabled.current && controls.enabled;
       controls.autoRotateSpeed = 1.6;
       controls.update();
       renderer.render(scene, camera);
+      if (show3dNodes) cssRenderer.render(scene, camera);
+
       if (
         tick !== lastUpdate &&
         (!playback.playing || tick % 3 === 0 || tick < lastUpdate)
@@ -387,6 +665,11 @@ export function Viewport({
         orbit.geometry.dispose();
         orbit.material.dispose();
       });
+      cables3dGroup.children.forEach((child) => {
+        const line = child as Line<BufferGeometry, LineBasicMaterial>;
+        line.geometry.dispose();
+        line.material.dispose();
+      });
       screen.geometry.dispose();
       screen.material.dispose();
       screenFrame.geometry.dispose();
@@ -396,8 +679,13 @@ export function Viewport({
       material.dispose();
       renderer.dispose();
       renderer.domElement.remove();
+      cssRenderer.domElement.remove();
     };
   }, [onFrame, playback, bitmap]);
+
+  useEffect(() => {
+    sync3dScene.current();
+  }, [project, nodeMeta, selectedNodeId, nodes3d]);
 
   async function fullscreen() {
     try {
@@ -469,6 +757,23 @@ export function Viewport({
               e.target.value = "";
             }}
           />
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Nodos Rete en escena 3D"
+            aria-pressed={nodes3d}
+            title="Mostrar nodos Rete flotando en el entorno 3D"
+            onClick={() => {
+              const next = !nodes3d;
+              setNodes3d(next);
+              if (next && mode === "hydra") {
+                onMode?.("3d");
+                onTexture?.(true);
+              }
+            }}
+          >
+            <Workflow size={14} />
+          </button>
           <button
             type="button"
             className="icon-button"
@@ -546,6 +851,18 @@ export function Viewport({
         />
         {overlay}
         {codeSlot}
+        {nodes3d && mode !== "hydra" && (
+          <button
+            type="button"
+            className={`edit-3d-pill ${edit3d ? "is-active" : ""}`}
+            onClick={() => setEdit3d((v) => !v)}
+            title="Alternar entre orbitar cámara y editar nodos en 3D"
+          >
+            {edit3d
+              ? "Modo Editar Nodos 3D · Ctrl + Q para orbitar"
+              : "Modo Cámara 3D · Ctrl + Q para editar nodos"}
+          </button>
+        )}
         {blackout && (
           <div className="viewport-blackout" role="status">
             <span>BLACKOUT ACTIVO</span>

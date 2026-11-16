@@ -1,10 +1,16 @@
 import { readProject } from "../../../packages/engine/project.ts";
-import type { Edge, Node, Project } from "../../../packages/engine/project.ts";
+import type { Edge, Node, PortType, Project } from "../../../packages/engine/project.ts";
 import { defaultCode, presets } from "./hydraFrame.ts";
 import example from "../../../examples/particles.zence.json";
 
 export type Position = { x: number; y: number };
+export type Position3D = { x: number; y: number; z: number };
 export type Layout = Record<string, Position>;
+export type NodeMeta = {
+  color?: string;
+  comment?: string;
+  pos3d?: Position3D;
+};
 export type ViewSettings = { grid: boolean; guides: boolean; color: string; size: number };
 export type CueSlot = {
   id: string;
@@ -18,6 +24,7 @@ export type StudioDocument = {
   title: string;
   project: Project;
   positions: Layout;
+  nodeMeta?: Record<string, NodeMeta>;
   view: ViewSettings;
   code: string;
   bpm?: number;
@@ -28,89 +35,199 @@ export const initialView: ViewSettings = { grid: true, guides: true, color: "#ae
 export const loopSeconds = 10;
 export const initialTick = 155;
 
+export const cablesSwatches = [
+  "#f5f3f4",
+  "#58c4dc",
+  "#6ed491",
+  "#f0b35a",
+  "#e25d6b",
+  "#ae68ad",
+  "#7aa2f7",
+] as const;
+
 export const defaultCues: CueSlot[] = [
   { id: "cue-1", name: "Órbitas", code: presets.Órbitas, color: "#ae68ad", size: 3, controls: { intensity: 1.4 } },
   { id: "cue-2", name: "Materia", code: presets.Materia, color: "#8c68ae", size: 4, controls: { intensity: 2.2 } },
   { id: "cue-3", name: "Pulso", code: presets.Pulso, color: "#d472d3", size: 4.5, controls: { intensity: 3.1 } },
-  { id: "cue-4", name: "Medio", code: presets.Medio, color: "#cfb7cf", size: 2.5, controls: { intensity: 1.0 } },
+  { id: "cue-4", name: "Caleido", code: presets.Caleido, color: "#7aa2f7", size: 3.5, controls: { intensity: 1.8 } },
 ];
 
-export const nodeTypes = {
+export type NodeMetaSpec = {
+  label: string;
+  name: string;
+  namespace: string;
+  category: "Control" | "Anim" | "Math" | "Hydra" | "Scene";
+  description: string;
+  inputs: Array<{ key: string; label: string; type: PortType; optional?: boolean }>;
+  outputs: Array<{ key: string; label: string; type: PortType }>;
+};
+
+export const nodeTypes: Record<Node["kind"], NodeMetaSpec> = {
   "control.number": {
     label: "Control numérico",
-    name: "Intensidad",
-    category: "Señal",
+    name: "Number",
+    namespace: "Ops.Control.Number",
+    category: "Control",
     description: "Slider manual y remoto (0..4)",
-    input: null,
-    output: "value",
-    inputType: null,
-    outputType: "number",
+    inputs: [],
+    outputs: [{ key: "value", label: "Valor", type: "number" }],
   },
   "signal.lfo": {
     label: "Oscilador LFO",
     name: "LFO",
-    category: "Modulación",
+    namespace: "Ops.Anim.LFO",
+    category: "Anim",
     description: "Onda periódica determinista (Sine / Tri / Saw / Square)",
-    input: null,
-    output: "value",
-    inputType: null,
-    outputType: "number",
+    inputs: [],
+    outputs: [{ key: "value", label: "Valor", type: "number" }],
+  },
+  "signal.timer": {
+    label: "Temporizador",
+    name: "Timer",
+    namespace: "Ops.Anim.Timer",
+    category: "Anim",
+    description: "Reloj continuo determinista multiplicado por velocidad",
+    inputs: [],
+    outputs: [{ key: "value", label: "Tiempo", type: "number" }],
+  },
+  "signal.smooth": {
+    label: "Suavizador",
+    name: "Smooth",
+    namespace: "Ops.Anim.Smooth",
+    category: "Anim",
+    description: "Interpolación exponencial suave de una señal",
+    inputs: [{ key: "in", label: "Entrada", type: "number" }],
+    outputs: [{ key: "value", label: "Suave", type: "number" }],
+  },
+  "signal.mapRange": {
+    label: "Mapear Rango",
+    name: "MapRange",
+    namespace: "Ops.Math.MapRange",
+    category: "Math",
+    description: "Remapea un rango [inMin..inMax] a [outMin..outMax]",
+    inputs: [{ key: "in", label: "Valor", type: "number" }],
+    outputs: [{ key: "value", label: "Salida", type: "number" }],
   },
   "signal.math": {
-    label: "Matemática / Map",
+    label: "Operador Math",
     name: "Math",
-    category: "Modulación",
-    description: "Escala, suma, recorta o transforma una señal numérica",
-    input: "in",
-    output: "value",
-    inputType: "number",
-    outputType: "number",
+    namespace: "Ops.Math.Op",
+    category: "Math",
+    description: "Multiplica, suma, limita, abs o sin sobre una señal",
+    inputs: [{ key: "in", label: "Entrada", type: "number" }],
+    outputs: [{ key: "value", label: "Resultado", type: "number" }],
+  },
+  "hydra.osc": {
+    label: "Hydra Osc",
+    name: "Osc",
+    namespace: "Ops.Hydra.Osc",
+    category: "Hydra",
+    description: "Generador de ondas osc(freq, sync, offset)",
+    inputs: [{ key: "mod", label: "Mod Freq", type: "number", optional: true }],
+    outputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+  },
+  "hydra.noise": {
+    label: "Hydra Noise",
+    name: "Noise",
+    namespace: "Ops.Hydra.Noise",
+    category: "Hydra",
+    description: "Ruido Perlin generativo noise(scale, offset)",
+    inputs: [],
+    outputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+  },
+  "hydra.shape": {
+    label: "Hydra Shape",
+    name: "Shape",
+    namespace: "Ops.Hydra.Shape",
+    category: "Hydra",
+    description: "Polígono geométrico shape(sides, radius, smoothing)",
+    inputs: [{ key: "mod", label: "Mod Radio", type: "number", optional: true }],
+    outputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+  },
+  "hydra.kaleid": {
+    label: "Hydra Kaleid",
+    name: "Kaleid",
+    namespace: "Ops.Hydra.Kaleid",
+    category: "Hydra",
+    description: "Simetría caleidoscópica .kaleid(sides)",
+    inputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+    outputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+  },
+  "hydra.rotate": {
+    label: "Hydra Rotate",
+    name: "Rotate",
+    namespace: "Ops.Hydra.Rotate",
+    category: "Hydra",
+    description: "Rotación continua .rotate(angle, speed)",
+    inputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+    outputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+  },
+  "hydra.modulate": {
+    label: "Hydra Modulate",
+    name: "Modulate",
+    namespace: "Ops.Hydra.Modulate",
+    category: "Hydra",
+    description: "Distorsión espacial .modulate(modTex, amount)",
+    inputs: [
+      { key: "tex", label: "Textura", type: "hydra" },
+      { key: "modTex", label: "Mod Tex", type: "hydra", optional: true },
+      { key: "mod", label: "Mod Amt", type: "number", optional: true },
+    ],
+    outputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+  },
+  "hydra.color": {
+    label: "Hydra Color",
+    name: "Color",
+    namespace: "Ops.Hydra.Color",
+    category: "Hydra",
+    description: "Balance RGB .color(r, g, b)",
+    inputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+    outputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+  },
+  "hydra.out": {
+    label: "Hydra Output",
+    name: "Out",
+    namespace: "Ops.Hydra.Out",
+    category: "Hydra",
+    description: "Compila la cadena nodal hacia el buffer Hydra (o0..o3)",
+    inputs: [{ key: "tex", label: "Textura", type: "hydra" }],
+    outputs: [],
   },
   "simulation.particles": {
-    label: "Simulación de partículas",
-    name: "Emisor de partículas",
-    category: "Simulación",
+    label: "Emisor de partículas",
+    name: "Particles",
+    namespace: "Ops.Sim.Particles",
+    category: "Scene",
     description: "Campo de partículas 3D controlado por señal",
-    input: "intensity",
-    output: "points",
-    inputType: "number",
-    outputType: "points",
+    inputs: [{ key: "intensity", label: "Intensidad", type: "number" }],
+    outputs: [{ key: "points", label: "Puntos", type: "points" }],
   },
   "scene.points": {
-    label: "Escena de puntos",
-    name: "Escena 3D",
-    category: "Salida",
-    description: "Salida activa al visor 3D y proyección",
-    input: "points",
-    output: null,
-    inputType: "points",
-    outputType: null,
+    label: "Escena 3D",
+    name: "Scene3D",
+    namespace: "Ops.Scene.Points",
+    category: "Scene",
+    description: "Salida activa de puntos al visor 3D",
+    inputs: [{ key: "points", label: "Puntos", type: "points" }],
+    outputs: [],
   },
-} as const satisfies Record<
-  Node["kind"],
-  {
-    label: string;
-    name: string;
-    category: string;
-    description: string;
-    input: string | null;
-    output: string | null;
-    inputType: "number" | "points" | null;
-    outputType: "number" | "points" | null;
-  }
->;
+};
 
 export const portLabels: Record<string, string> = {
   intensity: "Intensidad",
   in: "Entrada",
   value: "Valor",
   points: "Puntos",
+  tex: "Textura",
+  modTex: "Mod Tex",
+  mod: "Mod",
 };
 
 export const initialDocument: StudioDocument = {
-  title: "Campo de partículas",
+  title: "dev by wilzamguerrero",
   project: readProject(example),
-  positions: { intensity: { x: 24, y: 24 }, particles: { x: 118, y: 168 }, stage: { x: 48, y: 318 } },
+  positions: { intensity: { x: 40, y: 30 }, particles: { x: 300, y: 110 }, stage: { x: 560, y: 190 } },
+  nodeMeta: {},
   view: initialView,
   code: defaultCode,
   bpm: 120,
@@ -118,7 +235,22 @@ export const initialDocument: StudioDocument = {
 };
 
 export function positionFor(node: Node, index: number, positions: Layout): Position {
-  return Object.hasOwn(positions, node.id) ? positions[node.id] : { x: 32 + (index % 2) * 70, y: 24 + index * 140 };
+  return Object.hasOwn(positions, node.id)
+    ? positions[node.id]
+    : { x: 40 + (index % 3) * 240, y: 30 + Math.floor(index / 3) * 180 };
+}
+
+export function defaultPosition3D(index: number, total: number): Position3D {
+  const half = Math.max(1, Math.ceil(total / 2));
+  const isLeft = index < half;
+  const sideIndex = isLeft ? index : index - half;
+  const sideCount = isLeft ? half : Math.max(1, total - half);
+  const spread = sideIndex - (sideCount - 1) / 2;
+  return {
+    x: isLeft ? -4.8 - Math.abs(spread) * 0.35 : 4.8 + Math.abs(spread) * 0.35,
+    y: 0.7 - spread * 1.65,
+    z: 0.9 + Math.abs(spread) * 0.5,
+  };
 }
 
 export function autoLayout(nodes: Node[], edges: Edge[]): Layout {
@@ -150,27 +282,50 @@ export function autoLayout(nodes: Node[], edges: Edge[]): Layout {
   const next: Layout = Object.create(null);
   for (const [level, group] of buckets) {
     group.forEach((node, index) => {
-      next[node.id] = { x: 24 + index * 196, y: 24 + level * 144 };
+      next[node.id] = { x: 36 + level * 255, y: 30 + index * 175 };
     });
   }
   return next;
 }
 
 export function makeNode(kind: Node["kind"], nodes: Node[]): Node {
-  const base = {
+  const baseMap: Record<Node["kind"], string> = {
     "control.number": "control",
     "signal.lfo": "lfo",
+    "signal.timer": "timer",
+    "signal.smooth": "smooth",
+    "signal.mapRange": "mapRange",
     "signal.math": "math",
+    "hydra.osc": "osc",
+    "hydra.noise": "noise",
+    "hydra.shape": "shape",
+    "hydra.kaleid": "kaleid",
+    "hydra.rotate": "rotate",
+    "hydra.modulate": "modulate",
+    "hydra.color": "color",
+    "hydra.out": "out",
     "simulation.particles": "emitter",
     "scene.points": "scene",
-  }[kind];
+  };
+  const base = baseMap[kind];
   let suffix = 1;
   while (nodes.some((node) => node.id === `${base}-${suffix}`)) suffix += 1;
   const id = `${base}-${suffix}`;
   switch (kind) {
     case "control.number": return { id, kind, initial: 1, min: 0, max: 4 };
     case "signal.lfo": return { id, kind, wave: "sine", rate: 0.5, amplitude: 1.2, offset: 1.5 };
+    case "signal.timer": return { id, kind, speed: 1 };
+    case "signal.smooth": return { id, kind, smoothing: 0.85 };
+    case "signal.mapRange": return { id, kind, inMin: 0, inMax: 4, outMin: 0.2, outMax: 2.5, clamp: true };
     case "signal.math": return { id, kind, op: "mul", factor: 1, bias: 0 };
+    case "hydra.osc": return { id, kind, freq: 10, sync: 0.08, offset: 0.4 };
+    case "hydra.noise": return { id, kind, scale: 3, offset: 0.15 };
+    case "hydra.shape": return { id, kind, sides: 5, radius: 0.4, smoothing: 0.01 };
+    case "hydra.kaleid": return { id, kind, sides: 5 };
+    case "hydra.rotate": return { id, kind, angle: 0, speed: 0.08 };
+    case "hydra.modulate": return { id, kind, amount: 0.12 };
+    case "hydra.color": return { id, kind, r: 0.68, g: 0.4, b: 0.78 };
+    case "hydra.out": return { id, kind, buffer: "o0" };
     case "simulation.particles": return { id, kind, seed: 42, count: 768 };
     case "scene.points": return { id, kind };
   }
@@ -206,6 +361,7 @@ export function loadDocument(input: unknown, filename: string): StudioDocument {
       : filename.replace(/(?:\.zence)?\.json$/i, "").slice(0, 72) || initialDocument.title,
     project,
     positions,
+    nodeMeta: metadata?.nodeMeta && typeof metadata.nodeMeta === "object" ? metadata.nodeMeta : {},
     code: typeof metadata?.code === "string" ? metadata.code.slice(0, 100000) : defaultCode,
     bpm,
     cues,
