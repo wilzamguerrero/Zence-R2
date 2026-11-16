@@ -1321,7 +1321,7 @@ h1 {
   background: linear-gradient(
     to right,
     var(--accent) var(--timeline-progress, 0%),
-    #2a2a31 var(--timeline-progress, 0%)
+    #4e4e5a var(--timeline-progress, 0%)
   );
 }
 .timeline-input::-webkit-slider-thumb {
@@ -1342,7 +1342,7 @@ h1 {
 .timeline-input::-moz-range-track {
   height: 2px;
   border-radius: 0;
-  background: #2a2a31;
+  background: #4e4e5a;
 }
 .timeline-input::-moz-range-progress {
   height: 2px;
