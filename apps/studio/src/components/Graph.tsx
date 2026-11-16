@@ -48,7 +48,7 @@ import type { ReactArea2D, RenderEmit } from "rete-react-plugin";
 const { RefSocket, useConnection } = ReactPresets.classic;
 import type { Edge, Node, PortType, Project } from "../../../../packages/engine/project.ts";
 import { nodeMediaHub } from "../nodeMediaHub.ts";
-import { nodeTypes, positionFor } from "../studio.ts";
+import { familyColors, nodeTypes, positionFor } from "../studio.ts";
 import type { Layout, NodeMeta, Position } from "../studio.ts";
 
 const icons: Record<Node["kind"], typeof Activity> = {
@@ -107,15 +107,7 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "scene.points": Box,
 };
 
-const categoryColors: Record<string, string> = {
-  TOP: "#9b72cf",
-  CHOP: "#6ed491",
-  SOP: "#58c4dc",
-  POP: "#7aa2f7",
-  MAT: "#f0b35a",
-  DAT: "#cf8acc",
-  COMP: "#d0cfd6",
-};
+const categoryColors = familyColors;
 
 const sockets: Record<PortType, ClassicPreset.Socket> = {
   number: new ClassicPreset.Socket("number"),

@@ -59,7 +59,7 @@ import type {
   VideoDeviceMode,
 } from "../../../../packages/engine/project.ts";
 import { nodeMediaHub } from "../nodeMediaHub.ts";
-import { cablesSwatches, nodeTypes, portLabels } from "../studio.ts";
+import { cablesSwatches, familyColors, nodeTypes, portLabels } from "../studio.ts";
 import type { CueSlot, NodeMeta, ViewSettings } from "../studio.ts";
 import { MocapPanel } from "./MocapPanel.tsx";
 
@@ -337,8 +337,14 @@ function NodePropertyCard({
     );
   }
 
+  const nodeAccent = meta?.color || familyColors[description.category] || "#ae68ad";
+
   return (
-    <div className={`prop-card ${pinned ? "is-pinned" : ""}`} data-prop-node={node.id}>
+    <div
+      className={`prop-card ${pinned ? "is-pinned" : ""}`}
+      data-prop-node={node.id}
+      style={{ "--prop-accent": nodeAccent } as React.CSSProperties}
+    >
       <div className="inspector-title">
         <button
           type="button"
@@ -351,12 +357,15 @@ function NodePropertyCard({
         </button>
         <span
           className="node-icon"
-          style={meta?.color ? { color: meta.color } : undefined}
+          style={{ color: nodeAccent, borderColor: nodeAccent }}
         >
           <Icon size={16} />
         </span>
         <div className="inspector-title-text">
-          <small>{description.namespace} · {node.id}</small>
+          <small>
+            <span className="td-family-tag prop-family-tag">{description.category}</span>{" "}
+            {node.id}
+          </small>
           <h3>Op {description.name}</h3>
         </div>
         {isSignal && (

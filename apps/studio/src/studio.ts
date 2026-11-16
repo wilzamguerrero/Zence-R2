@@ -54,6 +54,16 @@ export const defaultCues: CueSlot[] = [
 
 export type TdFamily = "TOP" | "CHOP" | "SOP" | "POP" | "MAT" | "DAT" | "COMP";
 
+export const familyColors: Record<TdFamily, string> = {
+  TOP: "#9b72cf",
+  CHOP: "#6ed491",
+  SOP: "#58c4dc",
+  POP: "#7aa2f7",
+  MAT: "#f0b35a",
+  DAT: "#cf8acc",
+  COMP: "#d0cfd6",
+};
+
 export type NodeMetaSpec = {
   label: string;
   name: string;
