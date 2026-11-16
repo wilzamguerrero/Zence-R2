@@ -1,13 +1,14 @@
 import { readProject } from "../../../packages/engine/project.ts";
 import type { Node, Project } from "../../../packages/engine/project.ts";
+import { defaultCode } from "./hydraFrame.ts";
 import example from "../../../examples/particles.zence.json";
 
 export type Position = { x: number; y: number };
 export type Layout = Record<string, Position>;
 export type ViewSettings = { grid: boolean; guides: boolean; color: string; size: number };
-export type StudioDocument = { title: string; project: Project; positions: Layout; view: ViewSettings };
+export type StudioDocument = { title: string; project: Project; positions: Layout; view: ViewSettings; code: string };
 
-export const initialView: ViewSettings = { grid: true, guides: true, color: "#daff69", size: 3 };
+export const initialView: ViewSettings = { grid: true, guides: true, color: "#ae68ad", size: 3 };
 export const loopSeconds = 10;
 export const initialTick = 155;
 
@@ -26,6 +27,7 @@ export const initialDocument: StudioDocument = {
   project: readProject(example),
   positions: { intensity: { x: 32, y: 35 }, particles: { x: 141, y: 190 }, stage: { x: 65, y: 345 } },
   view: initialView,
+  code: defaultCode,
 };
 
 export function positionFor(node: Node, index: number, positions: Layout): Position {
@@ -61,6 +63,7 @@ export function loadDocument(input: unknown, filename: string): StudioDocument {
       : filename.replace(/(?:\.zence)?\.json$/i, "").slice(0, 72) || initialDocument.title,
     project,
     positions,
+    code: typeof metadata?.code === "string" ? metadata.code.slice(0, 100000) : defaultCode,
     view: {
       grid: typeof view?.grid === "boolean" ? view.grid : initialView.grid,
       guides: typeof view?.guides === "boolean" ? view.guides : initialView.guides,

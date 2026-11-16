@@ -1,49 +1,60 @@
 # Zence R2
 
-Estudio audiovisual modular para crear visuales y simulaciones, construir escenas 3D y operarlas en vivo.
+Estudio audiovisual con grafo de nodos, visor 3D y código Hydra en vivo. La interfaz usa negro y violeta planos, tipografía Syne y componentes editables.
 
-## Abrir el estudio en local
+## Ejecutar en local
 
-Requiere Node.js 24 o posterior y un navegador con WebGL 2.
-
-1. Descargar o clonar la rama que contiene el estudio y abrir la carpeta en una terminal.
-2. Instalar las dependencias bloqueadas y arrancar el servidor local.
+Node.js 24 o posterior, Chrome o Edge con WebGL 2.
 
 ```sh
 npm ci
 npm run dev
 ```
 
-3. Abrir [http://localhost:5173](http://localhost:5173).
+Abrir http://localhost:5173. Mantener la terminal abierta. El servidor también sirve el panel remoto en la red local.
 
-## Probar el patch de partículas
+## Funciones del estudio
 
-- Seleccionar **Intensidad** en el grafo y mover el slider del **Inspector** durante la reproducción.
-- Arrastrar el encabezado de un nodo para organizar el grafo. Conectar un puerto haciendo clic en la salida y luego en la entrada. En el inspector del nodo receptor se puede quitar la conexión. El visor sigue usando la última escena válida mientras se arregla una entrada pendiente.
-- Seleccionar **Emisor de partículas** para editar la cantidad y la semilla. Confirmar con Enter o al salir del campo.
-- Arrastrar sobre el visor para orbitar, mover con el botón derecho y hacer zoom con la rueda. El visor tiene cuadrícula, ajuste de cámara y pantalla completa.
-- Usar los controles inferiores para pausar, reiniciar y recorrer el bucle de 10 segundos. Al buscar un instante, el motor vuelve a calcular la escena con los parámetros actuales. El registro de gestos para replay queda para otra entrega.
-- Usar **Guardar** para descargar el proyecto `.zence.json` con sus nodos, conexiones, posicionamiento y aspecto. Usar **Abrir** para cargarlo de nuevo.
+- **Código Hydra** usa hydra-synth 1.4. Escribir en el editor integrado y activar Auto, pulsar Ejecutar o usar Ctrl/⌘ + Enter. Los ejemplos Órbitas, Materia y Medio son editables. El código se ejecuta en un iframe de origen aislado.
+- **Nodos** permiten mover, añadir, conectar y eliminar controles numéricos, emisores y salidas de partículas. El motor valida tipos y conserva la escena anterior si una conexión queda incompleta. El código Hydra lee los controles con `control("intensity")` o el ID de otro nodo numérico.
+- **Visor** alterna entre la escena 3D y Hydra. La cámara se puede orbitar, desplazar y restablecer. **Hydra en 3D** coloca el visual en una pantalla dentro de la escena. El botón del cubo importa un GLB autocontenido o un OBJ sin materiales externos.
+- **Imagen / video** carga un archivo en `s0`. Elegir el ejemplo Medio o escribir `src(s0).out(o0)`. El video entra silenciado y en bucle.
+- **Micrófono** solicita acceso y entrega la envolvente normalizada mediante `audio()`. Ejemplo `osc(10).modulate(noise(3), () => audio()).out(o0)`.
+- **Proyectar** abre una ventana de programa con el visor actual. Arrastrarla al segundo monitor y hacer doble clic para entrar en pantalla completa. La imagen de Hydra se transfiere a hasta 20 FPS para esta primera ruta de salida.
+- **Grabar video** captura el visor actual a 1280 × 720, con captura de fotogramas del visor. Detener descarga un video en el formato disponible en el navegador. La captura actual contiene imagen.
+- **Celular** muestra la URL y un QR. Conectar ambos dispositivos a la misma red. Los nodos numéricos aparecen como sliders. La sesión se autentica con un enlace temporal y se sincroniza tras reconectar. El estudio debe abrirse en localhost en el computador anfitrión.
+- **Guardar / Abrir** conserva el grafo, los parámetros, la distribución de nodos, colores y código Hydra en `.zence.json`. Los modelos y archivos multimedia cargados pertenecen a la sesión y se importan de nuevo al abrir.
+- La pausa afecta ambos motores. El recorrido de 10 segundos y el reinicio de la barra inferior corresponden al simulador de partículas. Hydra tiene su propio reloj continuo.
 
-## Cambiar la interfaz
+## Asistente IA
 
-| Archivo | Responsabilidad |
+Copiar `.env.example` como `.env.local` en la raíz, completar el proveedor y reiniciar `npm run dev`. La URL debe apuntar al endpoint completo compatible con Chat Completions. Las credenciales permanecen en el servidor local.
+
+Abrir **Asistente IA**, describir el visual y generar una propuesta. La petición incluye el código, los nodos y los ajustes del proyecto. Revisar la propuesta y pulsar **Llevar al editor**. Esta acción desactiva Auto, y el usuario ejecuta el código cuando termine de revisarlo. La configuración admite proveedores locales o remotos. La respuesta real depende del modelo conectado.
+
+## Modificar la interfaz
+
+| Archivo | Contenido |
 | --- | --- |
-| [tokens.css](apps/studio/src/styles/tokens.css) | Paleta, tipografía, colores del visor, anchos de paneles, radio y espaciado general. |
-| [studio.css](apps/studio/src/styles/studio.css) | Distribución, estilos de paneles, nodos y comportamiento según ancho de ventana. |
-| [App.tsx](apps/studio/src/App.tsx) | Composición del escritorio, barra de proyecto y transporte. |
-| [components](apps/studio/src/components) | Grafo, visor e inspector. Cada panel se puede modificar por separado. |
-| [studio.ts](apps/studio/src/studio.ts) | Etiquetas de nodos, patch inicial y ajustes de presentación guardados con cada proyecto. |
+| `apps/studio/src/styles/tokens.css` | Colores, fuentes y variables de distribución. |
+| `apps/studio/src/styles/studio.css` | Paneles, controles y adaptación por tamaño. |
+| `apps/studio/src/components/` | Grafo, visor, inspector, código, IA y panel móvil. |
+| `apps/studio/src/hydraFrame.ts` | Ejemplos de código y entorno Hydra. |
+| `apps/studio/src/studio.ts` | Formato de proyecto y valores iniciales. |
 
-Cambiar los archivos con el servidor de desarrollo activo y comprobar la actualización en el navegador. El núcleo de simulación está en [packages/engine](packages/engine).
-
-## Verificación y diseño técnico
+## Comprobaciones y alcance
 
 ```sh
 npm test
 npm run build
-node examples/particles.ts
 ```
 
-- [Arquitectura de Zence R2](docs/arquitectura.md) incluye simulación, medios, proyección, control móvil, scripting, IA y extensiones.
-- [Ruta de implementación](docs/implementacion.md) registra el alcance del estudio y el siguiente paso para proyección y control desde el teléfono.
+El estudio ofrece un flujo de visuales en vivo. Siguen en desarrollo el mapeo geométrico de proyectores, salida multiproyector, OSC/MIDI, edición completa de entidades y materiales 3D, persistencia de archivos binarios, simulaciones físicas avanzadas y empaquetado de escritorio. El grafo inicial contiene tres tipos de nodo. La edición nodal visual de todas las operaciones Hydra queda para la ampliación del registro de nodos.
+
+Las pruebas automatizadas comprueban el motor y la compilación. Las pruebas de navegador ejercitan código Hydra, controles, archivos, proyección y grabación. La red LAN física, el micrófono del dispositivo, varios proyectores y un proveedor IA real requieren comprobación en el equipo de uso.
+
+## Dependencias
+
+Se integra el motor de [Hydra](https://github.com/hydra-synth/hydra-synth), distribuido bajo AGPL. `npm ci` copia su distribución y licencia desde la dependencia a `public/vendor` para servirla localmente. Three.js, CodeMirror y las demás dependencias conservan sus licencias respectivas.
+
+[Arquitectura](docs/arquitectura.md) · [Ruta de implementación](docs/implementacion.md)
