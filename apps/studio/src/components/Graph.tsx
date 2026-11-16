@@ -302,10 +302,8 @@ function ReteFlowConnection({ data }: { data: ZenceConnection }) {
   const { path } = useConnection();
   if (!path) return null;
   return (
-    <svg className={`rete-wire rete-wire-${data.socketType}`} data-testid="connection">
-      <path className="rete-wire-shadow" d={path} />
-      <path className="rete-wire-base" d={path} />
-      <path className="rete-wire-flow" d={path} />
+    <svg className={`rete-wire rete-wire-${data.socketType ?? "data"}`} data-testid="connection">
+      <path className="rete-wire-line" d={path} />
     </svg>
   );
 }
