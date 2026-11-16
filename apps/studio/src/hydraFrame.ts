@@ -36,7 +36,7 @@ export const presets = {
 };
 
 export function frameDocument(): string {
-  const source = new URL("/vendor/hydra-synth.js", location.href).href;
+  const source = new URL("./vendor/hydra-synth.js", location.href).href;
   return `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{width:100%;height:100%;display:block}</style></head><body><canvas id="screen" width="960" height="540"></canvas><script src="${source}"></script><script>
   const canvas = document.querySelector("canvas");
   canvas.getContext("webgl", {preserveDrawingBuffer:true});

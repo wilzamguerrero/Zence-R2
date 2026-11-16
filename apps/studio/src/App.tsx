@@ -39,7 +39,9 @@ import { LiveCode, OverlayCode } from "./components/LiveCode.tsx";
 import { useLiveStudio } from "./useLiveStudio.ts";
 import { Graph } from "./components/Graph.tsx";
 import { Inspector } from "./components/Inspector.tsx";
+import { VersionSelector } from "./components/VersionSelector.tsx";
 import { Viewport } from "./components/Viewport.tsx";
+import { APP_VERSION, currentVersionUrl, isArchiveMode } from "./version.ts";
 import { formatHydraCode, mutateHydraCode } from "./hydraTools.ts";
 import { durationTicks, Playback } from "./playback.ts";
 import {
@@ -626,6 +628,12 @@ export function App() {
             <span className="title-rule" aria-hidden="true" />
             <h1>dev by wilzamguerrero</h1>
           </div>
+          <VersionSelector />
+          {isArchiveMode() && (
+            <a className="archive-pill" href={currentVersionUrl()}>
+              Archivo v{APP_VERSION} · Ir a actual
+            </a>
+          )}
           {graphError && (
             <div className="project-status" data-error="true">
               <AlertCircle size={13} /> Grafo pendiente

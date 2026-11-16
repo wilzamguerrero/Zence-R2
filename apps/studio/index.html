@@ -3,11 +3,259 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#161715" />
-    <title>Zence R2 — Estudio</title>
+    <meta name="theme-color" content="#18161b" />
+    <title>Zence R2 — Estudio Audiovisual</title>
+    <style>
+      #splash {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 28px;
+        background:
+          radial-gradient(circle at 50% 44%, rgba(174, 104, 173, 0.14), transparent 56%),
+          #141216;
+        font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        transition: opacity 380ms ease;
+      }
+
+      #splash.is-gone {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      /* Escena nodal y orbital 3D de Zence R2 */
+      .splash-stage {
+        position: relative;
+        width: 132px;
+        height: 132px;
+        display: grid;
+        place-items: center;
+      }
+
+      .splash-cube {
+        width: 56px;
+        height: 56px;
+        --clr: #ae68ad;
+        --clr-alpha: rgba(174, 104, 173, 0.1);
+        animation: splash-cube 2.2s infinite ease-in-out;
+        transform-style: preserve-3d;
+      }
+
+      .splash-cube > div {
+        position: absolute;
+        width: 100%;
+        height: 100%;
+        background-color: var(--clr-alpha);
+        border: 2.5px solid var(--clr);
+      }
+
+      .splash-cube div:nth-of-type(1) { transform: translateZ(-28px) rotateY(180deg); }
+      .splash-cube div:nth-of-type(2) { transform: rotateY(-270deg) translateX(50%); transform-origin: top right; }
+      .splash-cube div:nth-of-type(3) { transform: rotateY(270deg) translateX(-50%); transform-origin: center left; }
+      .splash-cube div:nth-of-type(4) { transform: rotateX(90deg) translateY(-50%); transform-origin: top center; }
+      .splash-cube div:nth-of-type(5) { transform: rotateX(-90deg) translateY(50%); transform-origin: bottom center; }
+      .splash-cube div:nth-of-type(6) { transform: translateZ(28px); }
+
+      @keyframes splash-cube {
+        0%   { transform: rotate(45deg) rotateX(-25deg) rotateY(25deg); }
+        50%  { transform: rotate(45deg) rotateX(-385deg) rotateY(25deg); }
+        100% { transform: rotate(45deg) rotateX(-385deg) rotateY(385deg); }
+      }
+
+      /* Órbitas de partículas y nodos */
+      .splash-ring {
+        position: absolute;
+        inset: 4px;
+        border-radius: 50%;
+        border: 1px solid rgba(207, 138, 204, 0.36);
+        animation: splash-orbit-a 3.2s linear infinite;
+        pointer-events: none;
+      }
+
+      .splash-ring-b {
+        inset: 14px;
+        border-color: rgba(174, 104, 173, 0.52);
+        animation: splash-orbit-b 2.4s linear infinite reverse;
+      }
+
+      .splash-ring::before,
+      .splash-ring::after {
+        content: "";
+        position: absolute;
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #f5f3f4;
+        box-shadow: 0 0 10px #cf8acc;
+      }
+
+      .splash-ring::before {
+        top: -4px;
+        left: 50%;
+        transform: translateX(-50%);
+      }
+
+      .splash-ring::after {
+        bottom: -4px;
+        left: 50%;
+        transform: translateX(-50%);
+        background: #cf8acc;
+      }
+
+      @keyframes splash-orbit-a {
+        0%   { transform: rotateZ(24deg) rotateX(68deg) rotate(0deg); }
+        100% { transform: rotateZ(24deg) rotateX(68deg) rotate(360deg); }
+      }
+
+      @keyframes splash-orbit-b {
+        0%   { transform: rotateZ(-32deg) rotateY(64deg) rotate(0deg); }
+        100% { transform: rotateZ(-32deg) rotateY(64deg) rotate(360deg); }
+      }
+
+      .splash-brand {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        gap: 5px;
+        margin: 0;
+        padding: 0 16px;
+        text-align: center;
+      }
+
+      .splash-zence {
+        margin: 0;
+        font-size: clamp(26px, 4.4vw, 34px);
+        font-weight: 800;
+        line-height: 1;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+        color: #f5f3f4;
+        text-indent: 0.14em;
+      }
+
+      .splash-zence span {
+        color: #ae68ad;
+      }
+
+      .splash-sub {
+        margin: 0;
+        font-size: clamp(10px, 1.4vw, 11.5px);
+        font-weight: 700;
+        line-height: 1.2;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        color: #cfc8d2;
+        text-indent: 0.22em;
+      }
+
+      .splash-version {
+        margin: 6px 0 0;
+        font-size: 10px;
+        font-weight: 600;
+        letter-spacing: 0.24em;
+        text-transform: uppercase;
+        color: #9e8ca4;
+        text-indent: 0.24em;
+      }
+
+      /* Barras de señal audiovisual */
+      .splash-wave {
+        display: flex;
+        align-items: flex-end;
+        gap: 4px;
+        height: 16px;
+        margin-top: 4px;
+      }
+
+      .splash-wave i {
+        display: block;
+        width: 3px;
+        height: 4px;
+        background: #ae68ad;
+        animation: splash-bar 0.9s ease-in-out infinite alternate;
+      }
+
+      .splash-wave i:nth-child(2) { animation-delay: 0.12s; background: #cf8acc; }
+      .splash-wave i:nth-child(3) { animation-delay: 0.24s; background: #f5f3f4; }
+      .splash-wave i:nth-child(4) { animation-delay: 0.36s; background: #cf8acc; }
+      .splash-wave i:nth-child(5) { animation-delay: 0.48s; }
+
+      @keyframes splash-bar {
+        from { height: 4px; opacity: 0.45; }
+        to   { height: 16px; opacity: 1; }
+      }
+
+      .splash-dev {
+        position: absolute;
+        right: 18px;
+        bottom: 16px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        margin: 0;
+        font-size: 11px;
+        color: #847a88;
+      }
+
+      .splash-dev-tag {
+        padding: 0 5px;
+        border-radius: 3px;
+        background: rgba(174, 104, 173, 0.16);
+        color: #cf8acc;
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        line-height: 16px;
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .splash-cube {
+          animation: none;
+          transform: rotate(45deg) rotateX(-25deg) rotateY(25deg);
+        }
+        .splash-ring,
+        .splash-ring-b,
+        .splash-wave i {
+          animation: none;
+        }
+        #splash { transition: none; }
+      }
+    </style>
   </head>
   <body>
     <div id="root"></div>
+
+    <div id="splash" role="status" aria-label="Cargando Zence R2">
+      <div class="splash-stage" aria-hidden="true">
+        <div class="splash-ring"></div>
+        <div class="splash-ring splash-ring-b"></div>
+        <div class="splash-cube">
+          <div></div>
+          <div></div>
+          <div></div>
+          <div></div>
+          <div></div>
+          <div></div>
+        </div>
+      </div>
+
+      <div class="splash-brand">
+        <p class="splash-zence">Zence <span>R2</span></p>
+        <p class="splash-sub">Audiovisual Node &amp; Live Studio</p>
+        <p class="splash-version">Alpha 0.0.1</p>
+      </div>
+
+      <div class="splash-wave" aria-hidden="true">
+        <i></i><i></i><i></i><i></i><i></i>
+      </div>
+
+      <p class="splash-dev"><span class="splash-dev-tag">DEV</span>wilzamguerrero</p>
+    </div>
+
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
