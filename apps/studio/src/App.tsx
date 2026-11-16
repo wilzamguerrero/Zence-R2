@@ -33,6 +33,7 @@ import { compileHydraCode } from "../../../packages/engine/project.ts";
 import type { Edge, Node, Project } from "../../../packages/engine/project.ts";
 import { fixedStepSeconds } from "../../../packages/engine/clock.ts";
 import { Assistant } from "./components/Assistant.tsx";
+import { BrandMark } from "./components/BrandMark.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import type { PaletteAction } from "./components/CommandPalette.tsx";
 import { LiveCode, OverlayCode } from "./components/LiveCode.tsx";
@@ -617,11 +618,9 @@ export function App() {
       <header className="topbar">
         <div className="topbar-left">
           <div className="brand">
-            <span className="brand-symbol" aria-hidden="true">
-              <Activity size={16} strokeWidth={2.35} />
-            </span>
+            <BrandMark />
             <span className="brand-word">
-              zence<span> / </span>R2
+              Zence <span>R2</span>
             </span>
           </div>
           <div className="project-title">
