@@ -32,3 +32,9 @@ Son objetivos de validación en hardware de referencia. Registrar equipo, GPU, n
 | Portabilidad | Reabrir proyecto y resolver medios locales, con mensajes accionables para assets faltantes, permisos o formatos que el dispositivo no reproduzca. |
 
 Antes de añadir 4K, profundidad con cámaras externas o varias salidas, medir por separado simulación, render, transferencia Hydra–Three.js y decodificación. Priorizar el cuello que consuma más presupuesto en el patch de referencia. Probar patrones de montaje con la red desconectada de internet, el móvil bloqueado, el proyector reconectado y el editor recompilando código.
+
+## Avance del estudio con Hydra
+
+Implementado el editor de código Hydra con actualización automática, parámetros del grafo consultables desde código, paleta plana negra/violeta y fuente Syne. Añadidas salida en ventana, imagen/video como fuente, pantalla Hydra en escena 3D, importación GLB/OBJ, micrófono, grabación y panel táctil servido por WebSocket en LAN. El asistente genera propuestas de código a través de un endpoint configurable.
+
+La salida por ventana utiliza transferencia de frames y necesita medirse en el hardware de destino. El grafo sigue teniendo tres tipos de nodo. Siguen pendientes el registro completo de operadores, mapeo por superficies, MIDI/OSC, materiales y entidades editables, empaquetado de recursos y escritorio.
