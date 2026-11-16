@@ -120,8 +120,7 @@ export function VersionSelector() {
             aria-label="Versiones de Zence R2"
           >
             <div className="version-pop-head">
-              <h4>Versiones y ramas</h4>
-              <span>/versions.json</span>
+              <h4>Versiones</h4>
             </div>
 
             {entries.map((entry) => {
@@ -134,7 +133,7 @@ export function VersionSelector() {
                   className={active ? "is-active" : undefined}
                   role="menuitemradio"
                   aria-checked={active}
-                  title={entry.note ?? `Abrir versión ${entry.version}`}
+                  title={`v${entry.version}`}
                   onClick={() => selectEntry(entry)}
                 >
                   <span className="version-item-top">
@@ -147,11 +146,7 @@ export function VersionSelector() {
                         <span className="version-badge-current">Actual</span>
                       )}
                     </span>
-                    <span className="version-item-branch">{entry.branch}</span>
                   </span>
-                  {entry.note && (
-                    <span className="version-item-note">{entry.note}</span>
-                  )}
                 </button>
               );
             })}
