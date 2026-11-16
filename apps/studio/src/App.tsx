@@ -629,11 +629,11 @@ export function App() {
               Zence <span>R2</span>
             </span>
           </div>
+          <VersionSelector />
           <div className="project-title">
             <span className="title-rule" aria-hidden="true" />
             <h1>dev by wilzamguerrero</h1>
           </div>
-          <VersionSelector />
           {isArchiveMode() && (
             <a className="archive-pill" href={currentVersionUrl()}>
               Archivo v{APP_VERSION} · Ir a actual

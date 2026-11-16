@@ -182,6 +182,7 @@ export function Viewport({
   const [edit3d, setEdit3d] = useState(false);
   const [cardOrient, setCardOrient] = useState<"arc" | "flat" | "billboard">("arc");
   const [cardTiltDeg, setCardTiltDeg] = useState(0);
+  const [overlay3dInHydra, setOverlay3dInHydra] = useState(true);
   const [mocapActive, setMocapActive] = useState(sharedMocap.state.active);
 
   useEffect(
@@ -222,12 +223,14 @@ export function Viewport({
   const edit3dEnabled = useRef(edit3d);
   const cardOrientRef = useRef(cardOrient);
   const cardTiltRef = useRef(cardTiltDeg);
+  const overlay3dRef = useRef(overlay3dInHydra);
   textureEnabled.current = texture;
   autoRotateEnabled.current = autoRotate;
   nodes3dEnabled.current = nodes3d;
   edit3dEnabled.current = edit3d;
   cardOrientRef.current = cardOrient;
   cardTiltRef.current = cardTiltDeg;
+  overlay3dRef.current = overlay3dInHydra;
 
   useEffect(() => {
     visualSettings.current = view;
@@ -253,6 +256,7 @@ export function Viewport({
       renderer = new WebGLRenderer({
         antialias: true,
         preserveDrawingBuffer: true,
+        alpha: true,
       });
     } catch {
       setFailure(
@@ -294,7 +298,8 @@ export function Viewport({
 
     const scene = new Scene();
     scene.add(screen);
-    scene.background = palette("--viewport-bg", "#171a17");
+    const bgColor = palette("--viewport-bg", "#202020");
+    scene.background = bgColor;
     const camera = new PerspectiveCamera(37, 1, 0.05, 200);
     camera.position.set(7.6, 5.4, 10.8);
     const controls = new OrbitControls(camera, renderer.domElement);
@@ -905,14 +910,25 @@ export function Viewport({
           settings.size * renderer.getPixelRatio() * 2.4;
         lastView = settings;
       }
-      screen.visible = !!textureEnabled.current;
+      const isHydraComposite =
+        latestProps.current.mode === "hydra" && overlay3dRef.current;
+      if (isHydraComposite) {
+        scene.background = null;
+        renderer.setClearColor(0x000000, 0);
+        screen.visible = false;
+      } else {
+        scene.background = bgColor;
+        renderer.setClearColor(bgColor, 1);
+        screen.visible = !!textureEnabled.current;
+      }
       if (textureEnabled.current && bitmap?.current) {
         videoCanvas.getContext("2d")!.drawImage(bitmap.current, 0, 0, 960, 540);
         videoTexture.needsUpdate = true;
       }
 
       const show3dNodes =
-        nodes3dEnabled.current && latestProps.current.mode !== "hydra";
+        nodes3dEnabled.current &&
+        (latestProps.current.mode !== "hydra" || overlay3dRef.current);
       cssGroup.visible = show3dNodes;
       cables3dGroup.visible = show3dNodes;
       cssRenderer.domElement.style.display = show3dNodes ? "block" : "none";
@@ -1043,6 +1059,24 @@ export function Viewport({
               Hydra 3D
             </button>
           </div>
+          <button
+            type="button"
+            className={`preset-pill ${mode === "hydra" && overlay3dInHydra ? "is-active" : ""}`}
+            aria-label="Ver 3D sobre Hydra 2D"
+            aria-pressed={mode === "hydra" && overlay3dInHydra}
+            title="Activar/ocultar partículas, esqueleto y modelos 3D encima de Hydra 2D"
+            onClick={() => {
+              if (mode !== "hydra") {
+                setOverlay3dInHydra(true);
+                onMode?.("hydra");
+                onTexture?.(false);
+              } else {
+                setOverlay3dInHydra((v) => !v);
+              }
+            }}
+          >
+            + 3D en 2D
+          </button>
         </div>
         <div className="view-tools">
           <input
@@ -1175,13 +1209,17 @@ export function Viewport({
       <div className="viewport-body">
         <div
           className="render-surface"
-          style={{ visibility: mode === "hydra" ? "hidden" : "visible" }}
+          style={{
+            visibility: mode !== "hydra" || overlay3dInHydra ? "visible" : "hidden",
+            zIndex: mode === "hydra" && overlay3dInHydra ? 2 : 0,
+            background: mode === "hydra" && overlay3dInHydra ? "transparent" : undefined,
+          }}
           ref={mount}
         />
         {overlay}
         {graphSlot}
         {codeSlot}
-        {nodes3d && mode !== "hydra" && (
+        {nodes3d && (mode !== "hydra" || overlay3dInHydra) && (
           <div className="viewport-3d-controls">
             <button
               type="button"
@@ -1238,11 +1276,17 @@ export function Viewport({
         </div>
         <div className="view-meta">
           <Crosshair size={13} />
-          <span>{activeEngine === "hydra" ? "Hydra 960×540" : "Perspectiva"}</span>
+          <span>
+            {activeEngine === "hydra"
+              ? overlay3dInHydra
+                ? "Hydra 2D + 3D"
+                : "Hydra 960×540"
+              : "Perspectiva"}
+          </span>
           <span className="view-fps" ref={fpsNode}>60 FPS</span>
         </div>
         <div
-          style={{ visibility: mode === "hydra" ? "hidden" : "visible" }}
+          style={{ visibility: mode !== "hydra" || overlay3dInHydra ? "visible" : "hidden" }}
           className="axis-triad"
           aria-hidden="true"
         >
@@ -1252,7 +1296,7 @@ export function Viewport({
           <MoveUpRight size={29} />
         </div>
         <div
-          style={{ visibility: mode === "hydra" ? "hidden" : "visible" }}
+          style={{ visibility: mode !== "hydra" || overlay3dInHydra ? "visible" : "hidden" }}
           className="view-hint"
         >
           <Orbit size={13} /> Arrastrar para orbitar · rueda para acercar

@@ -1739,7 +1739,8 @@ h1 {
 }
 .graph-select-tools .button.is-active,
 .graph-select-tools .icon-button.is-active,
-.graph-add .preset-pill.is-active {
+.graph-add .preset-pill.is-active,
+.viewport-heading-left .preset-pill.is-active {
   background: var(--accent);
   color: var(--accent-text);
   border-color: var(--accent);
