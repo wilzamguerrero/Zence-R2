@@ -20,6 +20,7 @@
   --signal: #cf8acc;
   --points: #c9a6ca;
   --warning: #ffc27d;
+  --danger: #e25d6b;
   --grid-glow: #202020;
   --node-body: #272727;
   --node-header: #303030;
@@ -41,5 +42,5 @@
   --workspace-gap: 6px;
   --graph-width: minmax(250px, 0.72fr);
   --view-width: minmax(410px, 1.7fr);
-  --inspector-width: 244px;
+  --inspector-width: 264px;
 }

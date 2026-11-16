@@ -8,6 +8,7 @@ export function useLiveStudio(
   code: string,
   nodes: Node[],
   playing: boolean,
+  bpm: number,
   playback: Playback,
   onNumber: (id: string, value: number) => void,
 ) {
@@ -18,14 +19,16 @@ export function useLiveStudio(
   const [status, setStatus] = useState("");
   const [error, setError] = useState(false);
   const [mode, setMode] = useState<"3d" | "hydra">("hydra");
+  const [blackout, setBlackout] = useState(false);
+  const [projecting, setProjecting] = useState(false);
   const [qr, setQr] = useState("");
   const [address, setAddress] = useState("");
   const session = useRef<{ token: string; addresses: string[] } | undefined>(
     undefined,
   );
   const remote = useRef<WebSocket | undefined>(undefined);
-  const latest = useRef({ code, nodes, playing, onNumber });
-  latest.current = { code, nodes, playing, onNumber };
+  const latest = useRef({ code, nodes, playing, bpm, blackout, onNumber });
+  latest.current = { code, nodes, playing, bpm, blackout, onNumber };
   const projection = useRef<Window | null>(null);
   const [microphone, setMicrophone] = useState(false);
   const [recording, setRecording] = useState(false);
@@ -33,6 +36,8 @@ export function useLiveStudio(
   const mediaStream = useRef<MediaStream | null>(null);
   const audioContext = useRef<AudioContext | null>(null);
   const audioFrame = useRef(0);
+  const audioLevels = useRef({ audio: 0, bass: 0, mid: 0, high: 0 });
+  const beatOrigin = useRef(performance.now());
   const recorder = useRef<MediaRecorder | null>(null);
   const recordTrack = useRef<CanvasCaptureMediaStreamTrack | null>(null);
   const recordCanvas = useRef<HTMLCanvasElement | null>(null);
@@ -41,9 +46,9 @@ export function useLiveStudio(
     (data: unknown) => frame.current?.contentWindow?.postMessage(data, "*"),
     [],
   );
-  const run = useCallback(() => {
+  const run = useCallback((overrideCode?: string) => {
     if (ready) {
-      send({ type: "code", code: latest.current.code });
+      send({ type: "code", code: typeof overrideCode === "string" ? overrideCode : latest.current.code });
       setStatus("Compilando…");
     }
   }, [ready, send]);
@@ -83,18 +88,17 @@ export function useLiveStudio(
   useEffect(() => {
     send({
       type: "export",
-      value: texture || recording || !!projection.current,
+      value: texture || recording || projecting,
     });
-  }, [texture, recording, ready, send]);
+  }, [texture, recording, projecting, ready, send]);
   useEffect(() => {
     send({ type: "playing", value: playing });
   }, [playing, ready, send]);
   useEffect(() => {
-    const values = Object.fromEntries(
-      nodes
-        .filter((n) => n.kind === "control.number")
-        .map((n) => [n.id, n.initial]),
-    );
+    send({ type: "blackout", value: blackout });
+  }, [blackout, ready, send]);
+  useEffect(() => {
+    const values = playback.runtime.getNumbers();
     send({ type: "controls", values });
     if (remote.current?.readyState === 1)
       remote.current.send(
@@ -183,24 +187,49 @@ export function useLiveStudio(
 
   useEffect(() => {
     let id: number;
-    function draw() {
+    let lastSync = 0;
+    function draw(now: number) {
+      if (ready && now - lastSync > 32) {
+        lastSync = now;
+        const beatSeconds = 60 / Math.max(40, latest.current.bpm);
+        const beatPhase = (((now - beatOrigin.current) / 1000) / beatSeconds) % 1;
+        send({
+          type: "controls",
+          values: {
+            ...playback.runtime.getNumbers(),
+            __audio: audioLevels.current.audio,
+            __bass: audioLevels.current.bass,
+            __mid: audioLevels.current.mid,
+            __high: audioLevels.current.high,
+            __bpm: latest.current.bpm,
+            __beat: beatPhase,
+          },
+        });
+      }
       const capture = recordCanvas.current;
       if (capture) {
-        const source =
-          mode === "hydra"
-            ? bitmap.current
-            : document.querySelector<HTMLCanvasElement>(
-                ".render-surface canvas",
-              );
-        if (source) {
-          capture
-            .getContext("2d")
-            ?.drawImage(source, 0, 0, capture.width, capture.height);
+        const ctx = capture.getContext("2d");
+        if (latest.current.blackout) {
+          ctx?.fillRect(0, 0, capture.width, capture.height);
           recordTrack.current?.requestFrame();
+        } else {
+          const source =
+            mode === "hydra"
+              ? bitmap.current
+              : document.querySelector<HTMLCanvasElement>(
+                  ".render-surface canvas",
+                );
+          if (source && ctx) {
+            ctx.drawImage(source, 0, 0, capture.width, capture.height);
+            recordTrack.current?.requestFrame();
+          }
         }
       }
       const win = projection.current;
-      if (win && !win.closed) {
+      if (win && win.closed) {
+        projection.current = null;
+        setProjecting(false);
+      } else if (win && !win.closed) {
         const canvas = win.document.querySelector("canvas");
         const source =
           mode === "hydra"
@@ -208,7 +237,7 @@ export function useLiveStudio(
             : document.querySelector<HTMLCanvasElement>(
                 ".render-surface canvas",
               );
-        if (canvas && source) {
+        if (canvas) {
           if (
             canvas.width !== win.innerWidth ||
             canvas.height !== win.innerHeight
@@ -219,23 +248,25 @@ export function useLiveStudio(
           const ctx = canvas.getContext("2d")!;
           ctx.fillStyle = "#000";
           ctx.fillRect(0, 0, canvas.width, canvas.height);
-          const width = source.width,
-            height = source.height;
-          const scale = Math.min(canvas.width / width, canvas.height / height);
-          ctx.drawImage(
-            source,
-            (canvas.width - width * scale) / 2,
-            (canvas.height - height * scale) / 2,
-            width * scale,
-            height * scale,
-          );
+          if (source && !latest.current.blackout) {
+            const width = source.width,
+              height = source.height;
+            const scale = Math.min(canvas.width / width, canvas.height / height);
+            ctx.drawImage(
+              source,
+              (canvas.width - width * scale) / 2,
+              (canvas.height - height * scale) / 2,
+              width * scale,
+              height * scale,
+            );
+          }
         }
       }
       id = requestAnimationFrame(draw);
     }
     id = requestAnimationFrame(draw);
     return () => cancelAnimationFrame(id);
-  }, [mode, playback]);
+  }, [mode, playback, ready, send]);
 
   function openProjection() {
     const win = window.open("", "zence-program", "popup,width=1280,height=720");
@@ -251,7 +282,9 @@ export function useLiveStudio(
     win.document.title = "Zence R2 · Programa";
     win.document.body.ondblclick = () =>
       void win.document.documentElement.requestFullscreen();
+    win.onbeforeunload = () => setProjecting(false);
     projection.current = win;
+    setProjecting(true);
     send({ type: "export", value: true });
   }
   async function toggleMicrophone() {
@@ -259,6 +292,7 @@ export function useLiveStudio(
       cancelAnimationFrame(audioFrame.current);
       mediaStream.current?.getTracks().forEach((track) => track.stop());
       await audioContext.current?.close();
+      audioLevels.current = { audio: 0, bass: 0, mid: 0, high: 0 };
       setMicrophone(false);
       return;
     }
@@ -272,20 +306,24 @@ export function useLiveStudio(
       analyser.fftSize = 512;
       context.createMediaStreamSource(stream).connect(analyser);
       const data = new Uint8Array(analyser.frequencyBinCount);
+      function avgRange(start: number, end: number) {
+        let sum = 0;
+        for (let i = start; i < end; i += 1) sum += data[i] ?? 0;
+        return sum / Math.max(1, end - start) / 255;
+      }
       function analyse() {
         analyser.getByteFrequencyData(data);
-        const level = data.reduce((sum, n) => sum + n, 0) / data.length / 255;
-        const values = Object.fromEntries(
-          latest.current.nodes
-            .filter((n) => n.kind === "control.number")
-            .map((n) => [n.id, n.initial]),
-        );
-        send({ type: "controls", values: { ...values, __audio: level } });
+        audioLevels.current = {
+          audio: avgRange(0, data.length),
+          bass: avgRange(0, 12),
+          mid: avgRange(12, 64),
+          high: avgRange(64, 160),
+        };
         audioFrame.current = requestAnimationFrame(analyse);
       }
       analyse();
       setMicrophone(true);
-      setStatus("Micrófono activo. Usa audio() en el código.");
+      setStatus("Micrófono activo: audio(), bass(), mid(), high().");
     } catch (e) {
       setError(true);
       setStatus("No se pudo abrir el micrófono. " + String(e));
@@ -336,6 +374,13 @@ export function useLiveStudio(
     bitmap,
     texture,
     setTexture,
+    blackout,
+    setBlackout,
+    projecting,
+    audioLevels,
+    syncBeatOrigin: () => {
+      beatOrigin.current = performance.now();
+    },
     microphone,
     toggleMicrophone,
     recording,

@@ -67,3 +67,44 @@ test("the viewport can read positions into a reused buffer", () => {
   assert.notEqual(positions[0], Math.fround(first.x));
   assert.throws(() => runtime.writePositions(new Float32Array(3)), /too small/);
 });
+
+test("signal.lfo and signal.math drive particles deterministically across render rates", () => {
+  const patch = {
+    schemaVersion: 1,
+    scene: "stage",
+    nodes: [
+      { id: "lfo1", kind: "signal.lfo", wave: "sine", rate: 1, amplitude: 2, offset: 1 },
+      { id: "math1", kind: "signal.math", op: "clamp", factor: 2.5, bias: 0.2 },
+      { id: "particles", kind: "simulation.particles", seed: 7, count: 64 },
+      { id: "stage", kind: "scene.points" },
+    ],
+    edges: [
+      { from: { node: "lfo1", port: "value" }, to: { node: "math1", port: "in" } },
+      { from: { node: "math1", port: "value" }, to: { node: "particles", port: "intensity" } },
+      { from: { node: "particles", port: "points" }, to: { node: "stage", port: "points" } },
+    ],
+  };
+
+  function run(fps: number) {
+    const runtime = new ProjectRuntime(patch);
+    const clock = new FixedClock();
+    for (let frame = 0; frame < fps; frame += 1) {
+      clock.advance(1 / fps, () => runtime.tick());
+    }
+    return { snap: runtime.snapshot(), numbers: runtime.getNumbers() };
+  }
+
+  assert.deepEqual(run(30), run(60));
+  assert.deepEqual(run(60), run(144));
+  const check = new ProjectRuntime(patch);
+  assert.equal(check.getNumber("lfo1"), 1);
+  assert.equal(check.getNumber("math1"), 1);
+  assert.throws(
+    () => new ProjectRuntime({ ...patch, nodes: [{ id: "bad", kind: "signal.lfo", wave: "noise", rate: 1, amplitude: 1, offset: 0 }] }),
+    /Invalid wave/,
+  );
+  assert.throws(
+    () => new ProjectRuntime({ ...patch, nodes: [{ id: "bad", kind: "signal.math", op: "pow", factor: 1, bias: 0 }] }),
+    /Invalid op/,
+  );
+});

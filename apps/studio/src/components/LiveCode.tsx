@@ -8,6 +8,7 @@ type Props = {
   automatic: boolean;
   status: string;
   error: boolean;
+  hidden?: boolean;
   onCode: (code: string) => void;
   onAuto: (value: boolean) => void;
   onRun: () => void;
@@ -18,32 +19,30 @@ export function LiveCode({
   automatic,
   status,
   error,
+  hidden,
   onCode,
   onAuto,
   onRun,
 }: Props) {
   return (
-    <section className="panel live-code">
+    <section className={`panel live-code ${hidden ? "is-panel-hidden" : ""}`}>
       <div className="panel-heading">
         <h2>
-          <Code2 size={15} /> Código Hydra
+          <Code2 size={14} /> Código Hydra
         </h2>
         <div className="live-toolbar">
-          <select
-            className="mode-select"
-            aria-label="Ejemplo Hydra"
-            value=""
-            onChange={(e) =>
-              onCode(presets[e.target.value as keyof typeof presets])
-            }
-          >
-            <option value="" disabled>
-              Ejemplos
-            </option>
+          <div className="preset-pills" role="group" aria-label="Ejemplos Hydra">
             {Object.keys(presets).map((name) => (
-              <option key={name}>{name}</option>
+              <button
+                key={name}
+                type="button"
+                className="preset-pill"
+                onClick={() => onCode(presets[name as keyof typeof presets])}
+              >
+                {name}
+              </button>
             ))}
-          </select>
+          </div>
           <label>
             <input
               type="checkbox"
@@ -54,11 +53,11 @@ export function LiveCode({
           </label>
           <button
             className="icon-button"
-            title="Ejecutar código"
+            title="Ejecutar código (Ctrl + Enter)"
             aria-label="Ejecutar código"
             onClick={onRun}
           >
-            <Play size={14} />
+            <Play size={13} />
           </button>
         </div>
       </div>
@@ -81,7 +80,10 @@ export function LiveCode({
         />
       </div>
       <div role="status" className={`code-status ${error ? "code-error" : ""}`}>
-        {status || 'control("intensity") · Ctrl + Enter para ejecutar'}
+        <span>{status || "Ctrl + Enter para ejecutar"}</span>
+        <span className="code-api">
+          <code>control(&quot;id&quot;)</code> · <code>audio()</code> · <code>bass()</code> · <code>beat()</code> · <code>s0</code>
+        </span>
       </div>
     </section>
   );

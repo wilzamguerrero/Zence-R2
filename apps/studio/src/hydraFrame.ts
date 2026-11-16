@@ -12,6 +12,12 @@ export const presets = {
   .posterize(4, 0.6)
   .color(0.68, 0.4, 0.68)
   .out(o0)`,
+  Pulso: `shape(6, () => 0.25 + beat() * 0.25 + bass() * 0.3, 0.01)
+  .repeat(3, 3)
+  .rotate(() => time * 0.2)
+  .modulateScale(osc(5), () => control("intensity") * 0.12)
+  .color(0.78, 0.45, 0.85)
+  .out(o0)`,
   Medio: `src(s0)
   .rotate(() => time * 0.02)
   .modulate(osc(4), () => control("intensity") * 0.05)
@@ -20,13 +26,18 @@ export const presets = {
 
 export function frameDocument(): string {
   const source = new URL("/vendor/hydra-synth.js", location.href).href;
-  return `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#202020}canvas{width:100%;height:100%;display:block}</style></head><body><canvas id="screen"></canvas><script src="${source}"></script><script>
+  return `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{width:100%;height:100%;display:block}</style></head><body><canvas id="screen"></canvas><script src="${source}"></script><script>
   const canvas = document.querySelector("canvas");
   canvas.getContext("webgl", {preserveDrawingBuffer:true});
   const hydra = new Hydra({canvas, detectAudio:false, enableStreamCapture:false, makeGlobal:true, autoLoop:false, width:960, height:540});
   let controls = {}, running = true, frameExport = false, busy = false, lastExport = 0, media = null, mediaUrl = null;
   window.control = id => controls[id] ?? 0;
   window.audio = () => controls.__audio ?? 0;
+  window.bass = () => controls.__bass ?? 0;
+  window.mid = () => controls.__mid ?? 0;
+  window.high = () => controls.__high ?? 0;
+  window.bpm = () => controls.__bpm ?? 120;
+  window.beat = () => controls.__beat ?? 0;
   const tell = data => parent.postMessage(data, "*");
   addEventListener("message", async event => {
     if(event.source !== parent) return;

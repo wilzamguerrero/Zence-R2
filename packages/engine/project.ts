@@ -2,8 +2,13 @@ import { fixedStepSeconds } from "./clock.ts";
 
 type Point3 = { x: number; y: number; z: number };
 
+export type LfoWave = "sine" | "triangle" | "saw" | "square";
+export type MathOp = "add" | "mul" | "clamp" | "abs" | "sin";
+
 export type Node =
   | { id: string; kind: "control.number"; initial: number; min: number; max: number }
+  | { id: string; kind: "signal.lfo"; wave: LfoWave; rate: number; amplitude: number; offset: number }
+  | { id: string; kind: "signal.math"; op: MathOp; factor: number; bias: number }
   | { id: string; kind: "simulation.particles"; seed: number; count: number }
   | { id: string; kind: "scene.points" };
 
@@ -18,8 +23,13 @@ type PortType = "number" | "points";
 type Ports = { inputs: Record<string, PortType>; outputs: Record<string, PortType> };
 type NodePlan = { node: Node; sources: Map<string, string> };
 
+const lfoWaves: readonly LfoWave[] = ["sine", "triangle", "saw", "square"];
+const mathOps: readonly MathOp[] = ["add", "mul", "clamp", "abs", "sin"];
+
 const ports: Record<Node["kind"], Ports> = {
   "control.number": { inputs: {}, outputs: { value: "number" } },
+  "signal.lfo": { inputs: {}, outputs: { value: "number" } },
+  "signal.math": { inputs: { in: "number" }, outputs: { value: "number" } },
   "simulation.particles": { inputs: { intensity: "number" }, outputs: { points: "points" } },
   "scene.points": { inputs: { points: "points" }, outputs: {} },
 };
@@ -68,6 +78,33 @@ function readNode(value: unknown): Node {
       const max = number(node.max);
       if (min > initial || initial > max) throw new RangeError(`Invalid bounds for ${id}`);
       return { id, kind: node.kind, initial, min, max };
+    }
+    case "signal.lfo": {
+      if (typeof node.wave !== "string" || !lfoWaves.includes(node.wave as LfoWave)) {
+        throw new TypeError(`Invalid wave for ${id}`);
+      }
+      const rate = number(node.rate);
+      if (rate < 0 || rate > 100) throw new RangeError(`Invalid rate for ${id}`);
+      return {
+        id,
+        kind: node.kind,
+        wave: node.wave as LfoWave,
+        rate,
+        amplitude: number(node.amplitude),
+        offset: number(node.offset),
+      };
+    }
+    case "signal.math": {
+      if (typeof node.op !== "string" || !mathOps.includes(node.op as MathOp)) {
+        throw new TypeError(`Invalid op for ${id}`);
+      }
+      return {
+        id,
+        kind: node.kind,
+        op: node.op as MathOp,
+        factor: number(node.factor),
+        bias: number(node.bias),
+      };
     }
     case "simulation.particles":
       return { id, kind: node.kind, seed: integer(node.seed, 0, 0xffffffff), count: integer(node.count, 1, 10_000) };
@@ -157,12 +194,49 @@ function seedParticles(seed: number, count: number): Particles {
   };
 }
 
+function evalLfo(node: Extract<Node, { kind: "signal.lfo" }>, time: number): number {
+  const phase = ((time * node.rate) % 1 + 1) % 1;
+  let wave = 0;
+  switch (node.wave) {
+    case "sine":
+      wave = Math.sin(phase * Math.PI * 2);
+      break;
+    case "triangle":
+      wave = phase < 0.25 ? phase * 4 : phase < 0.75 ? 2 - phase * 4 : phase * 4 - 4;
+      break;
+    case "saw":
+      wave = phase * 2 - 1;
+      break;
+    case "square":
+      wave = phase < 0.5 ? 1 : -1;
+      break;
+  }
+  return node.offset + wave * node.amplitude;
+}
+
+function evalMath(node: Extract<Node, { kind: "signal.math" }>, input: number): number {
+  switch (node.op) {
+    case "add":
+      return input + node.factor + node.bias;
+    case "mul":
+      return input * node.factor + node.bias;
+    case "clamp":
+      return Math.min(Math.max(input, node.bias), Math.max(node.bias, node.factor));
+    case "abs":
+      return Math.abs(input) * node.factor + node.bias;
+    case "sin":
+      return Math.sin(input * node.factor) + node.bias;
+  }
+}
+
 export class ProjectRuntime {
   private readonly plan: NodePlan[];
   private readonly sceneId: string;
   private readonly controls = new Map<string, { min: number; max: number; value: number }>();
+  private readonly numbers = new Map<string, number>();
   private readonly particles = new Map<string, Particles>();
   private readonly scenes = new Map<string, Point3[]>();
+  private stepCount = 0;
 
   constructor(data: unknown) {
     const project = readProject(data);
@@ -179,20 +253,46 @@ export class ProjectRuntime {
         this.scenes.set(node.id, this.particles.get(sources.get("points")!)!.positions);
       }
     }
+    this.evaluateSignals();
+  }
+
+  private evaluateSignals(): void {
+    const time = this.stepCount * fixedStepSeconds;
+    for (const { node, sources } of this.plan) {
+      if (node.kind === "control.number") {
+        this.numbers.set(node.id, this.controls.get(node.id)!.value);
+      } else if (node.kind === "signal.lfo") {
+        this.numbers.set(node.id, evalLfo(node, time));
+      } else if (node.kind === "signal.math") {
+        const input = this.numbers.get(sources.get("in")!) ?? 0;
+        this.numbers.set(node.id, evalMath(node, input));
+      }
+    }
   }
 
   setNumber(id: string, value: number): number {
     const control = this.controls.get(id);
     if (!control) throw new Error(`Unknown control ${id}`);
     control.value = Math.min(control.max, Math.max(control.min, number(value)));
+    this.evaluateSignals();
     return control.value;
   }
 
+  getNumber(id: string): number | undefined {
+    return this.numbers.get(id);
+  }
+
+  getNumbers(): Record<string, number> {
+    return Object.fromEntries(this.numbers);
+  }
+
   tick(): void {
+    this.evaluateSignals();
     for (const { node, sources } of this.plan) {
       if (node.kind !== "simulation.particles") continue;
       const { positions, velocities } = this.particles.get(node.id)!;
-      const distance = fixedStepSeconds * this.controls.get(sources.get("intensity")!)!.value;
+      const intensity = this.numbers.get(sources.get("intensity")!) ?? 0;
+      const distance = fixedStepSeconds * intensity;
       for (let index = 0; index < positions.length; index += 1) {
         const position = positions[index];
         const velocity = velocities[index];
@@ -201,6 +301,7 @@ export class ProjectRuntime {
         position.z += velocity.z * distance;
       }
     }
+    this.stepCount += 1;
   }
 
   get pointCount(): number {

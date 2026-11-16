@@ -21,10 +21,12 @@ import {
   BufferGeometry,
   Color,
   DynamicDrawUsage,
+  EdgesGeometry,
   GridHelper,
   Group,
   Line,
   LineBasicMaterial,
+  LineSegments,
   PerspectiveCamera,
   Points,
   Scene,
@@ -87,11 +89,14 @@ type ViewportProps = {
   playback: Playback;
   view: ViewSettings;
   playing: boolean;
+  hidden?: boolean;
+  blackout?: boolean;
   onFrame: (tick: number) => void;
   onGrid: () => void;
   overlay?: ReactNode;
   bitmap?: RefObject<ImageBitmap | null>;
   texture?: boolean;
+  onTexture?: (enabled: boolean) => void;
   mode?: "3d" | "hydra";
   onMode?: (mode: "3d" | "hydra") => void;
 };
@@ -100,6 +105,8 @@ export function Viewport({
   playback,
   view,
   playing,
+  hidden,
+  blackout,
   onFrame,
   onGrid,
   overlay,
@@ -107,17 +114,22 @@ export function Viewport({
   onMode,
   bitmap,
   texture,
+  onTexture,
 }: ViewportProps) {
   const container = useRef<HTMLDivElement>(null);
   const mount = useRef<HTMLDivElement>(null);
+  const fpsNode = useRef<HTMLSpanElement>(null);
   const [failure, setFailure] = useState("");
   const [ready, setReady] = useState(false);
+  const [autoRotate, setAutoRotate] = useState(false);
   const modelInput = useRef<HTMLInputElement>(null);
   const loadModel = useRef<(file: File) => void>(() => {});
   const resetCamera = useRef<() => void>(() => {});
   const visualSettings = useRef(view);
   const textureEnabled = useRef(texture);
+  const autoRotateEnabled = useRef(autoRotate);
   textureEnabled.current = texture;
+  autoRotateEnabled.current = autoRotate;
   useEffect(() => {
     visualSettings.current = view;
   }, [view]);
@@ -150,10 +162,17 @@ export function Viewport({
     videoCanvas.width = 960;
     videoCanvas.height = 540;
     const videoTexture = new CanvasTexture(videoCanvas);
+    const screenGeometry = new PlaneGeometry(6.4, 3.6);
     const screen = new Mesh(
-      new PlaneGeometry(6.4, 3.6),
+      screenGeometry,
       new MeshBasicMaterial({ map: videoTexture, side: DoubleSide }),
     );
+    screen.position.set(0, 0, -1.2);
+    const screenFrame = new LineSegments(
+      new EdgesGeometry(screenGeometry),
+      new LineBasicMaterial({ color: palette("--accent", "#ae68ad"), transparent: true, opacity: 0.7 }),
+    );
+    screen.add(screenFrame);
     const scene = new Scene();
     scene.add(screen);
     scene.background = palette("--viewport-bg", "#171a17");
@@ -269,11 +288,20 @@ export function Viewport({
     let lastFrame: number | undefined;
     let lastUpdate = -1;
     let lastTick = -1;
+    let fpsCounter = 0;
+    let fpsMark = performance.now();
     let lastRuntime: typeof playback.runtime | undefined;
     let lastView: ViewSettings | undefined;
     function draw(now: number) {
       const elapsed = lastFrame === undefined ? 0 : (now - lastFrame) / 1000;
       lastFrame = now;
+      fpsCounter += 1;
+      if (now - fpsMark >= 500) {
+        const fps = Math.round((fpsCounter * 1000) / (now - fpsMark));
+        if (fpsNode.current) fpsNode.current.textContent = `${fps} FPS`;
+        fpsCounter = 0;
+        fpsMark = now;
+      }
       playback.advance(elapsed);
       const { runtime, tick } = playback;
       if (attribute?.count !== runtime.pointCount) {
@@ -307,6 +335,8 @@ export function Viewport({
         videoCanvas.getContext("2d")!.drawImage(bitmap.current, 0, 0, 960, 540);
         videoTexture.needsUpdate = true;
       }
+      controls.autoRotate = !!autoRotateEnabled.current;
+      controls.autoRotateSpeed = 1.6;
       controls.update();
       renderer.render(scene, camera);
       if (
@@ -334,6 +364,8 @@ export function Viewport({
       });
       screen.geometry.dispose();
       screen.material.dispose();
+      screenFrame.geometry.dispose();
+      screenFrame.material.dispose();
       videoTexture.dispose();
       geometry.dispose();
       material.dispose();
@@ -351,25 +383,52 @@ export function Viewport({
     }
   }
 
+  const activeEngine = mode === "hydra" ? "hydra" : texture ? "hydra3d" : "3d";
+
   return (
     <section
-      className="panel viewport-panel"
+      className={`panel viewport-panel ${hidden ? "is-panel-hidden" : ""}`}
       aria-label="Visor 3D"
       ref={container}
     >
       <div className="panel-heading">
-        <h2>
-          <Box size={16} /> Visor{" "}
-          <select
-            className="mode-select"
-            aria-label="Motor del visor"
-            value={mode ?? "3d"}
-            onChange={(e) => onMode?.(e.target.value as "3d" | "hydra")}
-          >
-            <option value="3d">Escena 3D</option>
-            <option value="hydra">Hydra</option>
-          </select>
-        </h2>
+        <div className="viewport-heading-left">
+          <h2>
+            <Box size={14} /> Visor
+          </h2>
+          <div className="segmented" role="group" aria-label="Motor del visor">
+            <button
+              type="button"
+              aria-pressed={activeEngine === "3d"}
+              onClick={() => {
+                onMode?.("3d");
+                onTexture?.(false);
+              }}
+            >
+              3D
+            </button>
+            <button
+              type="button"
+              aria-pressed={activeEngine === "hydra"}
+              onClick={() => {
+                onMode?.("hydra");
+                onTexture?.(false);
+              }}
+            >
+              Hydra
+            </button>
+            <button
+              type="button"
+              aria-pressed={activeEngine === "hydra3d"}
+              onClick={() => {
+                onMode?.("3d");
+                onTexture?.(true);
+              }}
+            >
+              Hydra 3D
+            </button>
+          </div>
+        </div>
         <div className="view-tools">
           <input
             type="file"
@@ -386,12 +445,23 @@ export function Viewport({
             }}
           />
           <button
+            type="button"
             className="icon-button"
             title="Importar GLB / OBJ"
             aria-label="Importar modelo 3D"
             onClick={() => modelInput.current?.click()}
           >
-            <Box size={15} />
+            <Box size={14} />
+          </button>
+          <button
+            type="button"
+            className="icon-button"
+            aria-label="Auto-órbita de cámara"
+            aria-pressed={autoRotate}
+            title="Auto-órbita de cámara"
+            onClick={() => setAutoRotate((v) => !v)}
+          >
+            <Orbit size={14} />
           </button>
           <button
             type="button"
@@ -400,7 +470,7 @@ export function Viewport({
             title="Restablecer cámara"
             onClick={() => resetCamera.current()}
           >
-            <RotateCcw size={15} />
+            <RotateCcw size={14} />
           </button>
           <button
             type="button"
@@ -410,7 +480,7 @@ export function Viewport({
             title="Alternar cuadrícula"
             onClick={onGrid}
           >
-            <Grid2X2 size={15} />
+            <Grid2X2 size={14} />
           </button>
           <button
             type="button"
@@ -420,7 +490,7 @@ export function Viewport({
             disabled={!ready}
             onClick={() => void fullscreen()}
           >
-            <Expand size={15} />
+            <Expand size={14} />
           </button>
         </div>
       </div>
@@ -431,6 +501,11 @@ export function Viewport({
           ref={mount}
         />
         {overlay}
+        {blackout && (
+          <div className="viewport-blackout" role="status">
+            <span>BLACKOUT ACTIVO</span>
+          </div>
+        )}
         <div
           style={{ visibility: mode === "hydra" ? "hidden" : "visible" }}
           className="view-frame"
@@ -441,12 +516,10 @@ export function Viewport({
           <i />
           <i />
         </div>
-        <div
-          style={{ visibility: mode === "hydra" ? "hidden" : "visible" }}
-          className="view-meta"
-        >
-          <Crosshair size={15} />
-          <span>Perspectiva</span>
+        <div className="view-meta">
+          <Crosshair size={13} />
+          <span>{activeEngine === "hydra" ? "Hydra 960×540" : "Perspectiva"}</span>
+          <span className="view-fps" ref={fpsNode}>60 FPS</span>
         </div>
         <div
           style={{ visibility: mode === "hydra" ? "hidden" : "visible" }}
@@ -462,7 +535,7 @@ export function Viewport({
           style={{ visibility: mode === "hydra" ? "hidden" : "visible" }}
           className="view-hint"
         >
-          <Orbit size={14} /> Arrastrar para orbitar · rueda para acercar
+          <Orbit size={13} /> Arrastrar para orbitar · rueda para acercar
         </div>
         <div className="view-live">
           <span className={`status-dot ${playing && ready ? "" : "muted"}`} />{" "}

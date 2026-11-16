@@ -1,6 +1,6 @@
 # Zence R2
 
-Estudio audiovisual con grafo de nodos, visor 3D y código Hydra en vivo. La interfaz usa negro y violeta planos, tipografía Syne y componentes editables.
+Estudio audiovisual en vivo que integra grafo nodal determinista (estilo Cables.gl / TouchDesigner), visor 3D, *live coding* con Hydra y control de directo (cues, BPM y salida de escenario estilo Resolume). La interfaz usa negro y violeta planos, tipografía Syne y paneles acoplables y ocultables.
 
 ## Ejecutar en local
 
@@ -15,32 +15,41 @@ Abrir http://localhost:5173. Mantener la terminal abierta. El servidor también 
 
 ## Funciones del estudio
 
-- **Código Hydra** usa hydra-synth 1.4. Escribir en el editor integrado y activar Auto, pulsar Ejecutar o usar Ctrl/⌘ + Enter. Los ejemplos Órbitas, Materia y Medio son editables. El código se ejecuta en un iframe de origen aislado.
-- **Nodos** permiten mover, añadir, conectar y eliminar controles numéricos, emisores y salidas de partículas. El motor valida tipos y conserva la escena anterior si una conexión queda incompleta. El código Hydra lee los controles con `control("intensity")` o el ID de otro nodo numérico.
-- **Visor** alterna entre la escena 3D y Hydra. La cámara se puede orbitar, desplazar y restablecer. **Hydra en 3D** coloca el visual en una pantalla dentro de la escena. El botón del cubo importa un GLB autocontenido o un OBJ sin materiales externos.
-- **Imagen / video** carga un archivo en `s0`. Elegir el ejemplo Medio o escribir `src(s0).out(o0)`. El video entra silenciado y en bucle.
-- **Micrófono** solicita acceso y entrega la envolvente normalizada mediante `audio()`. Ejemplo `osc(10).modulate(noise(3), () => audio()).out(o0)`.
-- **Proyectar** abre una ventana de programa con el visor actual. Arrastrarla al segundo monitor y hacer doble clic para entrar en pantalla completa. La imagen de Hydra se transfiere a hasta 20 FPS para esta primera ruta de salida.
-- **Grabar video** captura el visor actual a 1280 × 720, con captura de fotogramas del visor. Detener descarga un video en el formato disponible en el navegador. La captura actual contiene imagen.
-- **Celular** muestra la URL y un QR. Conectar ambos dispositivos a la misma red. Los nodos numéricos aparecen como sliders. La sesión se autentica con un enlace temporal y se sincroniza tras reconectar. El estudio debe abrirse en localhost en el computador anfitrión.
-- **Guardar / Abrir** conserva el grafo, los parámetros, la distribución de nodos, colores y código Hydra en `.zence.json`. Los modelos y archivos multimedia cargados pertenecen a la sesión y se importan de nuevo al abrir.
-- La pausa afecta ambos motores. El recorrido de 10 segundos y el reinicio de la barra inferior corresponden al simulador de partículas. Hydra tiene su propio reloj continuo.
+- **Espacio de trabajo modular**: la barra superior permite mostrar u ocultar de forma independiente **Grafo** (`Alt+1`), **Visor** (`Alt+2`), **Código** (`Alt+3`) e **Inspector** (`Alt+4`), o cambiar entre vistas rápidas (**Estudio**, **Live**, **Escenario**, restaurar todo con `Alt+0`). Los paneles ocultos conservan su contexto WebGL, medios y estado sin reiniciarse mientras los paneles visibles ocupan todo el espacio disponible.
+- **Grafo de operadores**:
+  - Incluye **Control numérico** (`control.number`), **Oscilador LFO** determinista (`signal.lfo`: senoidal, triangular, sierra, cuadrada), **Matemática / Map** (`signal.math`: `mul`, `add`, `clamp`, `abs`, `sin`), **Emisor de partículas** (`simulation.particles`) y **Escena 3D** (`scene.points`).
+  - Pulsa `Tab`, haz doble clic en el lienzo o usa `+` para abrir el buscador rápido de operadores. Arrastra el fondo para desplazarte, usa el botón de cuadrícula para auto-ordenar nodos y visualiza valores numéricos en vivo sobre cada salida.
+  - Al conectar un puerto se muestra una vista previa del cable y se resaltan los puertos compatibles. El motor valida tipos y conserva la última escena válida si una conexión queda incompleta.
+- **Código Hydra**: usa hydra-synth 1.4 en un iframe aislado. Activa **Auto**, pulsa Ejecutar o usa `Ctrl/⌘ + Enter`. Lee cualquier nodo numérico o modulador con `control("id")`, el pulso del proyecto con `beat()` y `bpm()`, las bandas de micrófono con `audio()`, `bass()`, `mid()`, `high()`, y los medios cargados en `s0`.
+- **Visor**: selector directo entre **3D**, **Hydra** y **Hydra 3D** (pantalla generativa dentro de la escena 3D). Permite orbitar, activar auto-órbita, restablecer cámara, alternar cuadrícula, consultar FPS en vivo e importar modelos **GLB / OBJ**.
+- **Banco de Cues, BPM y Blackout**:
+  - Dispara cues instantáneos con código Hydra, color, tamaño y controles guardados, o captura el estado actual en cualquier cue.
+  - Ajusta el tempo en la barra inferior con **BPM** o **TAP** para sincronizar `beat()`.
+  - **Blackout** (`Alt+B`) corta a negro la salida del visor, proyección y grabación de forma inmediata.
+- **Salida y control remoto**:
+  - **Proyectar** abre una ventana de programa independiente para segundo monitor (doble clic para pantalla completa).
+  - **Grabar** captura el visor actual a 1280 × 720.
+  - **Micrófono** analiza el espectro en tiempo real (`audio()`, `bass()`, `mid()`, `high()`).
+  - **Imagen / video** carga un archivo en `s0` (video silenciado y en bucle).
+  - **Celular** genera un enlace local con QR por WebSocket para controlar nodos numéricos desde un teléfono en la misma LAN.
+- **Guardar / Abrir**: conserva el grafo, operadores, posiciones, cues, BPM, ajustes de vista y código Hydra en `.zence.json`.
 
 ## Asistente IA
 
 Copiar `.env.example` como `.env.local` en la raíz, completar el proveedor y reiniciar `npm run dev`. La URL debe apuntar al endpoint completo compatible con Chat Completions. Las credenciales permanecen en el servidor local.
 
-Abrir **Asistente IA**, describir el visual y generar una propuesta. La petición incluye el código, los nodos y los ajustes del proyecto. Revisar la propuesta y pulsar **Llevar al editor**. Esta acción desactiva Auto, y el usuario ejecuta el código cuando termine de revisarlo. La configuración admite proveedores locales o remotos. La respuesta real depende del modelo conectado.
+Abrir **Asistente IA**, describir el visual y generar una propuesta. La petición incluye el código, los nodos y los ajustes del proyecto. Revisar la propuesta y pulsar **Llevar al editor**. Esta acción desactiva Auto, y el usuario ejecuta el código cuando termine de revisarlo.
 
 ## Modificar la interfaz
 
 | Archivo | Contenido |
 | --- | --- |
 | `apps/studio/src/styles/tokens.css` | Colores, fuentes y variables de distribución. |
-| `apps/studio/src/styles/studio.css` | Paneles, controles y adaptación por tamaño. |
+| `apps/studio/src/styles/studio.css` | Barra de paneles, grafo, visor, cues, inspector y transporte. |
 | `apps/studio/src/components/` | Grafo, visor, inspector, código, IA y panel móvil. |
-| `apps/studio/src/hydraFrame.ts` | Ejemplos de código y entorno Hydra. |
-| `apps/studio/src/studio.ts` | Formato de proyecto y valores iniciales. |
+| `apps/studio/src/hydraFrame.ts` | Ejemplos de código y API Hydra (`control`, `audio`, `bass`, `beat`). |
+| `apps/studio/src/studio.ts` | Formato de proyecto, cues, auto-layout y operadores. |
+| `packages/engine/project.ts` | Motor determinista de paso fijo y validación del grafo. |
 
 ## Comprobaciones y alcance
 
@@ -49,9 +58,7 @@ npm test
 npm run build
 ```
 
-El estudio ofrece un flujo de visuales en vivo. Siguen en desarrollo el mapeo geométrico de proyectores, salida multiproyector, OSC/MIDI, edición completa de entidades y materiales 3D, persistencia de archivos binarios, simulaciones físicas avanzadas y empaquetado de escritorio. El grafo inicial contiene tres tipos de nodo. La edición nodal visual de todas las operaciones Hydra queda para la ampliación del registro de nodos.
-
-Las pruebas automatizadas comprueban el motor y la compilación. Las pruebas de navegador ejercitan código Hydra, controles, archivos, proyección y grabación. La red LAN física, el micrófono del dispositivo, varios proyectores y un proveedor IA real requieren comprobación en el equipo de uso.
+Siguen en evolución el mapeo geométrico de proyectores (warping/edge blending), salida multiproyector nativa, OSC/MIDI por puente, materiales 3D avanzados, empaquetado binario de recursos y empaquetado de escritorio.
 
 ## Dependencias
 
