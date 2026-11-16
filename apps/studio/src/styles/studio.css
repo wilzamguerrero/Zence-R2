@@ -1648,6 +1648,13 @@ h1 {
   padding: 5px 9px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.05);
 }
+.rete-inline-control input[type="range"] {
+  flex: 1;
+  min-width: 0;
+  cursor: ew-resize;
+  touch-action: none;
+  accent-color: var(--node-accent, var(--accent));
+}
 .rete-inline-control output {
   font: 10px var(--font-mono);
   color: var(--accent);
@@ -1689,6 +1696,7 @@ h1 {
   margin-right: auto;
 }
 .rete-socket {
+  position: relative;
   display: inline-block;
   width: 12px;
   height: 12px;
@@ -1696,10 +1704,44 @@ h1 {
   border: 2px solid #1b1b20;
   background: var(--signal);
   cursor: crosshair;
-  transition: transform 0.12s ease;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
 }
-.rete-socket:hover {
-  transform: scale(1.3);
+.rete-socket::after {
+  content: "";
+  position: absolute;
+  inset: -7px;
+  border-radius: 50%;
+}
+.rete-socket:hover,
+.rete-socket.is-magnetic-target {
+  transform: scale(1.38);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.32);
+}
+
+.rete-select-overlay {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 20;
+}
+.rete-select-shape {
+  fill: rgba(174, 104, 173, 0.16);
+  stroke: #cf8acc;
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
+.graph-select-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.graph-select-tools .button.is-active,
+.graph-select-tools .icon-button.is-active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
 }
 .rete-socket-number {
   background: #cf8acc;
@@ -1811,20 +1853,60 @@ h1 {
   inset: 0;
   z-index: 2;
   overflow: hidden;
+  pointer-events: none !important;
+}
+.css3d-surface > div {
+  pointer-events: none !important;
 }
 .rete-3d-card {
-  width: 196px;
-  background: rgba(24, 24, 30, 0.92);
+  width: 204px;
+  background: rgba(24, 24, 30, 0.94);
   border: 1px solid var(--node-accent, var(--accent));
   border-radius: 6px;
-  padding: 7px 9px;
+  padding: 8px 10px;
   color: var(--text);
   font-family: var(--font-ui);
   box-shadow: 0 10px 28px #000a;
   user-select: none;
+  pointer-events: auto;
+  cursor: grab;
+  touch-action: none;
+}
+.rete-3d-card:active {
+  cursor: grabbing;
+}
+.rete-3d-card input[type="range"] {
+  width: 100%;
+  cursor: ew-resize;
+  touch-action: none;
+  accent-color: var(--node-accent, var(--accent));
+}
+.rete-3d-card input,
+.rete-3d-card select {
+  pointer-events: auto;
 }
 .rete-3d-card.is-selected {
   box-shadow: 0 0 0 2px #fff, 0 10px 28px #000c;
+}
+.view-orient-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 6px;
+  background: rgba(20, 20, 24, 0.85);
+  border: 1px solid var(--line);
+}
+.view-orient-bar select {
+  background: transparent;
+  color: var(--text);
+  border: 0;
+  font: 10.5px var(--font-mono);
+  outline: none;
+  cursor: pointer;
+}
+.view-orient-bar input[type="range"] {
+  width: 58px;
+  accent-color: var(--accent);
 }
 .rete-3d-head {
   cursor: grab;
@@ -1865,11 +1947,17 @@ h1 {
   padding: 2px 4px;
   font: 10px var(--font-mono);
 }
-.edit-3d-pill {
+.viewport-3d-controls {
   position: absolute;
   top: 38px;
   right: 16px;
   z-index: 5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+.edit-3d-pill {
   padding: 4px 10px;
   background: rgba(20, 18, 24, 0.84);
   backdrop-filter: blur(6px);

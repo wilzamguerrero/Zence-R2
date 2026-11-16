@@ -412,7 +412,10 @@ export function loadDocument(input: unknown, filename: string): StudioDocument {
   for (const node of project.nodes) {
     const point = metadata?.positions?.[node.id];
     if (point && Number.isFinite(point.x) && Number.isFinite(point.y)) {
-      positions[node.id] = { x: Math.min(10_000, Math.max(0, point.x)), y: Math.min(10_000, Math.max(0, point.y)) };
+      positions[node.id] = {
+        x: Math.min(20_000, Math.max(-20_000, point.x)),
+        y: Math.min(20_000, Math.max(-20_000, point.y)),
+      };
     }
   }
   const view = metadata?.view;

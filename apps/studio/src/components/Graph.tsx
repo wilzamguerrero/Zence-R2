@@ -1,15 +1,18 @@
 import {
   Activity,
   Box,
+  BoxSelect,
   Calculator,
   CircleDot,
   Crosshair,
   Disc,
   Hand,
+  Lasso,
   Layers,
   LayoutGrid,
   Maximize,
   Minus,
+  Move,
   Palette,
   PersonStanding,
   Plus,
@@ -162,6 +165,26 @@ function nodeSummary(node: Node): string {
   }
 }
 
+function pointInPoly(px: number, py: number, poly: Array<{ x: number; y: number }>): boolean {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x;
+    const yi = poly[i].y;
+    const xj = poly[j].x;
+    const yj = poly[j].y;
+    const intersect = yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi || 1e-6) + xi;
+    if (intersect) inside = !inside;
+  }
+  return inside;
+}
+
+function rectsOverlap(
+  a: { left: number; right: number; top: number; bottom: number },
+  b: { left: number; right: number; top: number; bottom: number },
+): boolean {
+  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+}
+
 function ReteSocketDot({ data }: { data: ClassicPreset.Socket }) {
   return <span className={`rete-socket rete-socket-${data.name}`} title={data.name} />;
 }
@@ -175,6 +198,65 @@ function ReteFlowConnection({ data }: { data: ZenceConnection }) {
       <path className="rete-wire-base" d={path} />
       <path className="rete-wire-flow" d={path} />
     </svg>
+  );
+}
+
+function InlineRangeSlider({
+  nodeId,
+  min,
+  max,
+  value,
+  onChange,
+}: {
+  nodeId: string;
+  min: number;
+  max: number;
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  const [draft, setDraft] = useState(value);
+  const activeRef = useRef(false);
+  useEffect(() => {
+    if (!activeRef.current) setDraft(value);
+  }, [value]);
+
+  const stop = (e: React.SyntheticEvent) => {
+    e.stopPropagation();
+  };
+
+  return (
+    <div
+      className="rete-inline-control"
+      onPointerDown={stop}
+      onPointerMove={stop}
+      onMouseDown={stop}
+      onTouchStart={stop}
+    >
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step="any"
+        value={draft}
+        aria-label={`Valor de ${nodeId}`}
+        onPointerDown={(e) => {
+          activeRef.current = true;
+          e.stopPropagation();
+        }}
+        onPointerUp={() => {
+          activeRef.current = false;
+        }}
+        onBlur={() => {
+          activeRef.current = false;
+        }}
+        onChange={(e) => {
+          const next = Number(e.target.value);
+          setDraft(next);
+          onChange(next);
+        }}
+      />
+      <output>{draft.toFixed(2)}</output>
+    </div>
   );
 }
 
@@ -195,9 +277,13 @@ function ReteNodeCard({
   return (
     <div
       className={`rete-node ${data.isSelected ? "is-selected" : ""}`}
+      data-node-id={node.id}
       data-kind={node.kind}
       style={{ "--node-accent": accent } as React.CSSProperties}
-      onPointerDown={() => data.onSelectNode?.(node.id)}
+      onPointerDown={(e) => {
+        const additive = e.ctrlKey || e.metaKey || e.shiftKey;
+        data.onSelectNode?.(additive ? `__toggle__:${node.id}` : node.id);
+      }}
     >
       <div className="rete-node-bar" />
       <div className="rete-node-head">
@@ -213,29 +299,26 @@ function ReteNodeCard({
       <div className="rete-node-sub">{nodeSummary(node)}</div>
 
       {node.kind === "control.number" && (
-        <div
-          className="rete-inline-control"
-          onPointerDown={(e) => e.stopPropagation()}
-        >
-          <input
-            type="range"
-            min={node.min}
-            max={node.max}
-            step="any"
-            value={node.initial}
-            aria-label={`Valor de ${node.id}`}
-            onChange={(e) =>
-              data.onChangeValue?.({ ...node, initial: Number(e.target.value) })
-            }
-          />
-          <output>{node.initial.toFixed(2)}</output>
-        </div>
+        <InlineRangeSlider
+          nodeId={node.id}
+          min={node.min}
+          max={node.max}
+          value={node.initial}
+          onChange={(next) => data.onChangeValue?.({ ...node, initial: next })}
+        />
       )}
 
       <div className="rete-ports">
         {inputs.map(([key, input]) =>
           input ? (
-            <div className="rete-port-row in" key={key}>
+            <div
+              className="rete-port-row in"
+              key={key}
+              data-port-node={data.id}
+              data-port-key={key}
+              data-port-side="input"
+              data-port-type={input.socket.name}
+            >
               <RefSocket
                 name="input-socket"
                 side="input"
@@ -262,9 +345,18 @@ function ReteNodeCard({
 
         {outputs.map(([key, output]) =>
           output ? (
-            <div className="rete-port-row out" key={key}>
-              {output.socket.name === "number" && Number.isFinite(data.liveValue) && (
-                <output className="rete-port-value">{data.liveValue!.toFixed(2)}</output>
+            <div
+              className="rete-port-row out"
+              key={key}
+              data-port-node={data.id}
+              data-port-key={key}
+              data-port-side="output"
+              data-port-type={output.socket.name}
+            >
+              {output.socket.name === "number" && (
+                <output className="rete-port-value" data-live-value={data.id}>
+                  {Number.isFinite(data.liveValue) ? data.liveValue!.toFixed(2) : ""}
+                </output>
               )}
               <span className="rete-port-label">{output.label}</span>
               <RefSocket
@@ -327,14 +419,58 @@ export function Graph({
     topologyKey: string;
     chain: Promise<void>;
     didInitialFit: boolean;
+    dragging: Set<string>;
+    dragPrevPos: Map<string, Position>;
   } | null>(null);
+  const [selectMode, setSelectMode] = useState<"pan" | "marquee" | "lasso">("pan");
+  const [hitMode, setHitMode] = useState<"rect" | "center">("rect");
+  const [selectedIds, setSelectedIds] = useState<string[]>(selected ? [selected] : []);
+  const [marqueeShape, setMarqueeShape] = useState<{
+    kind: "marquee" | "lasso";
+    points: Array<{ x: number; y: number }>;
+  } | null>(null);
+
+  const selectedIdsRef = useRef<Set<string>>(new Set(selected ? [selected] : []));
+  const selectModeRef = useRef(selectMode);
+  const hitModeRef = useRef(hitMode);
+  selectModeRef.current = selectMode;
+  hitModeRef.current = hitMode;
+
+  useEffect(() => {
+    if (selected && !selectedIdsRef.current.has(selected)) {
+      selectedIdsRef.current = new Set([selected]);
+      setSelectedIds([selected]);
+    } else if (!selected && selectedIdsRef.current.size === 1) {
+      selectedIdsRef.current = new Set();
+      setSelectedIds([]);
+    }
+  }, [selected]);
+
+  const handleSelectToken = (token: string) => {
+    if (token.startsWith("__toggle__:")) {
+      const id = token.slice("__toggle__:".length);
+      const next = new Set(selectedIdsRef.current);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      selectedIdsRef.current = next;
+      setSelectedIds(Array.from(next));
+      if (next.size > 0) onSelect(id);
+    } else {
+      if (!selectedIdsRef.current.has(token) || selectedIdsRef.current.size > 1) {
+        selectedIdsRef.current = new Set([token]);
+        setSelectedIds([token]);
+      }
+      onSelect(token);
+    }
+  };
+
   const latestRef = useRef({
     project,
     positions,
     nodeMeta,
     values,
     selected,
-    onSelect,
+    onSelect: handleSelectToken,
     onChangeNode,
     onMove,
     onConnectEdge,
@@ -347,7 +483,7 @@ export function Graph({
     nodeMeta,
     values,
     selected,
-    onSelect,
+    onSelect: handleSelectToken,
     onChangeNode,
     onMove,
     onConnectEdge,
@@ -404,6 +540,7 @@ export function Graph({
     AreaExtensions.selectableNodes(area, AreaExtensions.selector(), {
       accumulating: AreaExtensions.accumulateOnCtrl(),
     });
+    AreaExtensions.simpleNodesOrder(area);
     AreaExtensions.snapGrid(area, { size: 12, dynamic: true });
 
     const state = {
@@ -413,8 +550,83 @@ export function Graph({
       topologyKey: "",
       chain: Promise.resolve(),
       didInitialFit: false,
+      dragging: new Set<string>(),
+      dragPrevPos: new Map<string, Position>(),
     };
     reteRef.current = state;
+
+    // Conexión magnética (detecta puerto compatible más cercano <= 36 px)
+    let pickedSocket: { nodeId: string; key: string; side: "input" | "output"; type: string } | null = null;
+    let magneticTarget: { nodeId: string; key: string; side: "input" | "output"; el: HTMLElement } | null = null;
+
+    function clearMagnetic() {
+      container?.querySelectorAll(".rete-socket.is-magnetic-target").forEach((el) => {
+        el.classList.remove("is-magnetic-target");
+      });
+      magneticTarget = null;
+    }
+
+    connection.addPipe((context) => {
+      if (context.type === "connectionpick") {
+        const s = context.data.socket;
+        const pickedNode = editor.getNode(s.nodeId);
+        const portObj =
+          s.side === "output" ? pickedNode?.outputs[s.key] : pickedNode?.inputs[s.key];
+        const typeName = portObj?.socket?.name ?? "";
+        pickedSocket = {
+          nodeId: s.nodeId,
+          key: s.key,
+          side: s.side,
+          type: typeName,
+        };
+      } else if (context.type === "connectiondrop") {
+        const droppedTarget = magneticTarget;
+        const picked = pickedSocket;
+        clearMagnetic();
+        pickedSocket = null;
+        if (!context.data.created && picked && droppedTarget) {
+          const isPickedOut = picked.side === "output";
+          const from = isPickedOut
+            ? { node: picked.nodeId, port: picked.key }
+            : { node: droppedTarget.nodeId, port: droppedTarget.key };
+          const to = isPickedOut
+            ? { node: droppedTarget.nodeId, port: droppedTarget.key }
+            : { node: picked.nodeId, port: picked.key };
+          if (from.node !== to.node) {
+            latestRef.current.onConnectEdge({ from, to });
+          }
+        }
+      } else if (context.type === "pointermove" && pickedSocket) {
+        const ev = (context.data as { event?: PointerEvent }).event;
+        if (ev) {
+          let bestDist = 36;
+          let best: { nodeId: string; key: string; side: "input" | "output"; el: HTMLElement } | null = null;
+          const rows = Array.from(container.querySelectorAll<HTMLElement>(".rete-port-row"));
+          for (const row of rows) {
+            const nodeId = row.dataset.portNode;
+            const key = row.dataset.portKey;
+            const side = row.dataset.portSide as "input" | "output" | undefined;
+            const ptype = row.dataset.portType;
+            if (!nodeId || !key || !side || !ptype) continue;
+            if (nodeId === pickedSocket.nodeId || side === pickedSocket.side || ptype !== pickedSocket.type) continue;
+            const dot = row.querySelector<HTMLElement>(".rete-socket");
+            if (!dot) continue;
+            const r = dot.getBoundingClientRect();
+            const dist = Math.hypot(ev.clientX - (r.left + r.width / 2), ev.clientY - (r.top + r.height / 2));
+            if (dist < bestDist) {
+              bestDist = dist;
+              best = { nodeId, key, side, el: dot };
+            }
+          }
+          if (magneticTarget?.el !== best?.el) {
+            clearMagnetic();
+            magneticTarget = best;
+            if (magneticTarget) magneticTarget.el.classList.add("is-magnetic-target");
+          }
+        }
+      }
+      return context;
+    });
 
     editor.addPipe((context) => {
       if (state.syncing) return context;
@@ -432,7 +644,7 @@ export function Graph({
           from: { node: source, port: sourceOutput },
           to: { node: target, port: targetInput },
         });
-        return undefined; // Let React topology sync create the validated connection cleanly
+        return undefined; // React topology sync creates the validated connection cleanly
       }
       if (context.type === "connectionremove") {
         const { source, sourceOutput, target, targetInput } = context.data;
@@ -445,19 +657,94 @@ export function Graph({
       return context;
     });
 
+    let multiMoving = false;
     area.addPipe((context) => {
       if (state.syncing) return context;
-      if (context.type === "nodetranslated") {
+      if (context.type === "nodepicked") {
+        const { id } = context.data;
+        state.dragging.add(id);
+        const view = area.nodeViews.get(id);
+        if (view) state.dragPrevPos.set(id, { ...view.position });
+      } else if (context.type === "nodetranslated") {
         const { id, position } = context.data;
-        latestRef.current.onMove(id, {
-          x: Math.max(0, Math.round(position.x)),
-          y: Math.max(0, Math.round(position.y)),
-        });
+        const prev = state.dragPrevPos.get(id);
+        const rounded = { x: Math.round(position.x), y: Math.round(position.y) };
+        latestRef.current.onMove(id, rounded);
+
+        // Arrastre conjunto de nodos multi-seleccionados
+        if (!multiMoving && state.dragging.has(id) && selectedIdsRef.current.has(id) && selectedIdsRef.current.size > 1 && prev) {
+          const dx = position.x - prev.x;
+          const dy = position.y - prev.y;
+          if (Math.abs(dx) > 0.01 || Math.abs(dy) > 0.01) {
+            multiMoving = true;
+            for (const otherId of selectedIdsRef.current) {
+              if (otherId === id) continue;
+              const ov = area.nodeViews.get(otherId);
+              if (!ov) continue;
+              const nx = ov.position.x + dx;
+              const ny = ov.position.y + dy;
+              void area.translate(otherId, { x: nx, y: ny });
+              latestRef.current.onMove(otherId, { x: Math.round(nx), y: Math.round(ny) });
+            }
+            multiMoving = false;
+          }
+        }
+        state.dragPrevPos.set(id, { x: position.x, y: position.y });
+      } else if (context.type === "nodedragged") {
+        const { id } = context.data;
+        state.dragging.delete(id);
+        state.dragPrevPos.delete(id);
+
+        // Inserción automática sobre cable si es un nodo passthrough sin cables previos
+        const curProj = latestRef.current.project;
+        const draggedNode = curProj.nodes.find((n) => n.id === id);
+        const hasAnyEdge = curProj.edges.some((e) => e.from.node === id || e.to.node === id);
+        const el = container?.querySelector<HTMLElement>(`[data-node-id="${id}"]`);
+        if (draggedNode && !hasAnyEdge && el) {
+          const spec = nodeTypes[draggedNode.kind];
+          if (spec.inputs.length > 0 && spec.outputs.length > 0) {
+            const box = el.getBoundingClientRect();
+            for (const edge of curProj.edges) {
+              const srcMeta = nodeTypes[curProj.nodes.find((n) => n.id === edge.from.node)?.kind ?? "control.number"];
+              const outSpec = srcMeta.outputs.find((o) => o.key === edge.from.port);
+              const inPort = spec.inputs.find((i) => i.type === outSpec?.type);
+              const outPort = spec.outputs.find((o) => o.type === outSpec?.type);
+              if (!outSpec || !inPort || !outPort) continue;
+
+              const srcEl = container.querySelector<HTMLElement>(`[data-node-id="${edge.from.node}"]`);
+              const dstEl = container.querySelector<HTMLElement>(`[data-node-id="${edge.to.node}"]`);
+              if (!srcEl || !dstEl) continue;
+              const sr = srcEl.getBoundingClientRect();
+              const dr = dstEl.getBoundingClientRect();
+              const midX = (sr.right + dr.left) * 0.5;
+              const midY = (sr.top + sr.height * 0.5 + dr.top + dr.height * 0.5) * 0.5;
+              if (midX >= box.left - 18 && midX <= box.right + 18 && midY >= box.top - 18 && midY <= box.bottom + 18) {
+                latestRef.current.onRemoveEdge(edge);
+                latestRef.current.onConnectEdge({ from: edge.from, to: { node: id, port: inPort.key } });
+                latestRef.current.onConnectEdge({ from: { node: id, port: outPort.key }, to: edge.to });
+                break;
+              }
+            }
+          }
+        }
       }
       return context;
     });
 
+    const resetStalePointer = () => {
+      state.dragging.clear();
+      state.dragPrevPos.clear();
+      clearMagnetic();
+      pickedSocket = null;
+    };
+    window.addEventListener("pointerup", resetStalePointer);
+    window.addEventListener("pointercancel", resetStalePointer);
+    window.addEventListener("blur", resetStalePointer);
+
     return () => {
+      window.removeEventListener("pointerup", resetStalePointer);
+      window.removeEventListener("pointercancel", resetStalePointer);
+      window.removeEventListener("blur", resetStalePointer);
       reteRef.current = null;
       area.destroy();
     };
@@ -499,7 +786,7 @@ export function Graph({
           const reteNode = new ZenceReteNode(n);
           reteNode.customColor = curMeta?.[n.id]?.color;
           reteNode.liveValue = curValues[n.id];
-          reteNode.isSelected = n.id === curSelected;
+          reteNode.isSelected = selectedIdsRef.current.has(n.id) || n.id === curSelected;
           reteNode.onSelectNode = curOnSelect;
           reteNode.onChangeValue = curOnChange;
           reteNode.onDisconnectPort = (nodeId, portKey) => {
@@ -537,7 +824,8 @@ export function Graph({
           });
         }
       } else {
-        // Fast in-place update without rebuilding topology
+        // Actualización ligera sin interrumpir sliders ni nodos siendo arrastrados
+        const focusedNode = document.activeElement?.closest<HTMLElement>("[data-node-id]")?.dataset.nodeId;
         for (let i = 0; i < curProject.nodes.length; i += 1) {
           const n = curProject.nodes[i];
           const reteNode = inst.editor.getNode(n.id);
@@ -545,15 +833,18 @@ export function Graph({
           reteNode.zenceNode = n;
           reteNode.customColor = curMeta?.[n.id]?.color;
           reteNode.liveValue = curValues[n.id];
-          reteNode.isSelected = n.id === curSelected;
+          reteNode.isSelected = selectedIdsRef.current.has(n.id) || n.id === curSelected;
           reteNode.onSelectNode = curOnSelect;
           reteNode.onChangeValue = curOnChange;
-          await inst.area.update("node", n.id);
+          if (focusedNode !== n.id && !inst.dragging.has(n.id)) {
+            await inst.area.update("node", n.id);
+          }
           const pt = positionFor(n, i, curPos);
           const view = inst.area.nodeViews.get(n.id);
           if (
             view &&
-            (Math.abs(view.position.x - pt.x) > 1 || Math.abs(view.position.y - pt.y) > 1)
+            !inst.dragging.has(n.id) &&
+            (Math.abs(view.position.x - pt.x) > 3 || Math.abs(view.position.y - pt.y) > 3)
           ) {
             await inst.area.translate(n.id, { x: pt.x, y: pt.y });
           }
@@ -564,10 +855,36 @@ export function Graph({
     }
   }
 
-  // Sync topology/node params/values/selection/positions into Rete
+  // Sincronización de topología, parámetros, selección y posiciones (sin depender de ticks de `values`)
   useEffect(() => {
     queueSync();
-  }, [project, positions, nodeMeta, values, selected]);
+  }, [project, positions, nodeMeta, selected, selectedIds]);
+
+  // Lectura numérica en vivo directo en el DOM a 60fps sin re-renderizar nodos ni trabar sliders
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    container.querySelectorAll<HTMLOutputElement>("[data-live-value]").forEach((el) => {
+      const id = el.dataset.liveValue;
+      if (!id) return;
+      const val = values[id];
+      el.textContent = Number.isFinite(val) ? val.toFixed(2) : "";
+    });
+  }, [values]);
+
+  // Recuperación limpia al salir y volver al panel de grafo
+  useEffect(() => {
+    const inst = reteRef.current;
+    if (!inst) return;
+    inst.dragging.clear();
+    inst.dragPrevPos.clear();
+    setMarqueeShape(null);
+    if (!hidden) {
+      requestAnimationFrame(() => {
+        window.dispatchEvent(new Event("resize"));
+      });
+    }
+  }, [hidden]);
 
   useEffect(() => {
     if (showAdd) {
@@ -603,9 +920,18 @@ export function Graph({
           setShowAdd((open) => !open);
         } else if (event.key === "Escape") {
           setShowAdd(false);
-        } else if ((event.key === "Delete" || event.key === "Backspace") && selected) {
-          event.preventDefault();
-          onDelete(selected);
+        } else if (event.key === "Delete" || event.key === "Backspace") {
+          const targets = selectedIdsRef.current.size > 0
+            ? Array.from(selectedIdsRef.current)
+            : selected
+              ? [selected]
+              : [];
+          if (targets.length > 0) {
+            event.preventDefault();
+            for (const id of targets) onDelete(id);
+            selectedIdsRef.current = new Set();
+            setSelectedIds([]);
+          }
         }
       }}
     >
@@ -722,12 +1048,162 @@ export function Graph({
         onDoubleClick={(e) => {
           if (e.target === containerRef.current) setShowAdd(true);
         }}
-      />
+        onPointerDownCapture={(e) => {
+          const host = containerRef.current;
+          if (!host) return;
+          const targetEl = e.target as HTMLElement | null;
+          if (targetEl?.closest(".rete-node") || targetEl?.closest(".rete-socket")) return;
+          const shouldSelect = e.button === 0 && (e.shiftKey || selectModeRef.current !== "pan");
+          if (!shouldSelect) return;
+
+          e.stopPropagation();
+          e.preventDefault();
+          const hostRect = host.getBoundingClientRect();
+          const kind: "marquee" | "lasso" =
+            selectModeRef.current === "lasso" ? "lasso" : "marquee";
+          const start = { x: e.clientX - hostRect.left, y: e.clientY - hostRect.top };
+          const pts = [start];
+          setMarqueeShape({ kind, points: pts });
+
+          const updateHitSelection = (curPts: Array<{ x: number; y: number }>) => {
+            const minX = Math.min(...curPts.map((p) => p.x));
+            const maxX = Math.max(...curPts.map((p) => p.x));
+            const minY = Math.min(...curPts.map((p) => p.y));
+            const maxY = Math.max(...curPts.map((p) => p.y));
+            const picked: string[] = [];
+
+            host.querySelectorAll<HTMLElement>("[data-node-id]").forEach((el) => {
+              const id = el.dataset.nodeId;
+              if (!id) return;
+              const r = el.getBoundingClientRect();
+              const nodeRect = {
+                left: r.left - hostRect.left,
+                right: r.right - hostRect.left,
+                top: r.top - hostRect.top,
+                bottom: r.bottom - hostRect.top,
+              };
+              const cx = (nodeRect.left + nodeRect.right) * 0.5;
+              const cy = (nodeRect.top + nodeRect.bottom) * 0.5;
+
+              let match = false;
+              if (kind === "marquee") {
+                match =
+                  hitModeRef.current === "center"
+                    ? cx >= minX && cx <= maxX && cy >= minY && cy <= maxY
+                    : rectsOverlap(nodeRect, { left: minX, right: maxX, top: minY, bottom: maxY });
+              } else {
+                if (hitModeRef.current === "center") {
+                  match = pointInPoly(cx, cy, curPts);
+                } else {
+                  const corners = [
+                    { x: nodeRect.left, y: nodeRect.top },
+                    { x: nodeRect.right, y: nodeRect.top },
+                    { x: nodeRect.right, y: nodeRect.bottom },
+                    { x: nodeRect.left, y: nodeRect.bottom },
+                    { x: cx, y: cy },
+                  ];
+                  match = corners.some((c) => pointInPoly(c.x, c.y, curPts));
+                }
+              }
+              if (match) picked.push(id);
+            });
+
+            selectedIdsRef.current = new Set(picked);
+            setSelectedIds(picked);
+            if (picked.length > 0) onSelect(picked[0]);
+          };
+
+          const onMoveEv = (moveEv: PointerEvent) => {
+            const pt = { x: moveEv.clientX - hostRect.left, y: moveEv.clientY - hostRect.top };
+            if (kind === "marquee") {
+              pts[1] = pt;
+              setMarqueeShape({ kind, points: [pts[0], pt] });
+            } else {
+              const last = pts[pts.length - 1];
+              if (Math.hypot(pt.x - last.x, pt.y - last.y) > 4) {
+                pts.push(pt);
+                setMarqueeShape({ kind, points: [...pts] });
+              }
+            }
+            updateHitSelection(pts);
+          };
+
+          const onUpEv = () => {
+            window.removeEventListener("pointermove", onMoveEv);
+            window.removeEventListener("pointerup", onUpEv);
+            window.removeEventListener("pointercancel", onUpEv);
+            setMarqueeShape(null);
+          };
+
+          window.addEventListener("pointermove", onMoveEv);
+          window.addEventListener("pointerup", onUpEv);
+          window.addEventListener("pointercancel", onUpEv);
+        }}
+      >
+        {marqueeShape && (
+          <svg className="rete-select-overlay" aria-hidden="true">
+            {marqueeShape.kind === "marquee" && marqueeShape.points.length >= 2 ? (
+              <rect
+                className="rete-select-shape"
+                x={Math.min(marqueeShape.points[0].x, marqueeShape.points[1].x)}
+                y={Math.min(marqueeShape.points[0].y, marqueeShape.points[1].y)}
+                width={Math.abs(marqueeShape.points[1].x - marqueeShape.points[0].x)}
+                height={Math.abs(marqueeShape.points[1].y - marqueeShape.points[0].y)}
+              />
+            ) : marqueeShape.kind === "lasso" && marqueeShape.points.length >= 2 ? (
+              <polygon
+                className="rete-select-shape"
+                points={marqueeShape.points.map((p) => `${p.x},${p.y}`).join(" ")}
+              />
+            ) : null}
+          </svg>
+        )}
+      </div>
 
       <div className="graph-footer">
         <span>
-          <Crosshair size={12} /> {project.nodes.length} ops · {project.edges.length} cables · Tab añade
+          <Crosshair size={12} />{" "}
+          {selectedIds.length > 1
+            ? `${selectedIds.length} seleccionados · Supr elimina`
+            : `${project.nodes.length} ops · ${project.edges.length} cables · Shift+Arrastra selecciona`}
         </span>
+        <div className="graph-select-tools" role="group" aria-label="Herramienta de selección">
+          <button
+            type="button"
+            className={`icon-button ${selectMode === "pan" ? "is-active" : ""}`}
+            title="Mover lienzo (arrastre normal)"
+            aria-label="Modo mover lienzo"
+            onClick={() => setSelectMode("pan")}
+          >
+            <Move size={12} />
+          </button>
+          <button
+            type="button"
+            className={`icon-button ${selectMode === "marquee" ? "is-active" : ""}`}
+            title="Selección rectangular (Marquee)"
+            aria-label="Selección rectangular"
+            onClick={() => setSelectMode("marquee")}
+          >
+            <BoxSelect size={12} />
+          </button>
+          <button
+            type="button"
+            className={`icon-button ${selectMode === "lasso" ? "is-active" : ""}`}
+            title="Selección por lazo libre (Lasso)"
+            aria-label="Selección por lazo"
+            onClick={() => setSelectMode("lasso")}
+          >
+            <Lasso size={12} />
+          </button>
+          <button
+            type="button"
+            className="preset-pill"
+            title="Alternar detección por área del nodo o por centro"
+            onClick={() => setHitMode((m) => (m === "rect" ? "center" : "rect"))}
+          >
+            {hitMode === "rect" ? "Área" : "Centro"}
+          </button>
+        </div>
         <div className="graph-zoom">
           <button
             type="button"

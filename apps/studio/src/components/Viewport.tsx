@@ -173,6 +173,8 @@ export function Viewport({
   const [autoRotate, setAutoRotate] = useState(false);
   const [nodes3d, setNodes3d] = useState(false);
   const [edit3d, setEdit3d] = useState(false);
+  const [cardOrient, setCardOrient] = useState<"arc" | "flat" | "billboard">("arc");
+  const [cardTiltDeg, setCardTiltDeg] = useState(0);
   const [mocapActive, setMocapActive] = useState(sharedMocap.state.active);
 
   useEffect(
@@ -211,10 +213,14 @@ export function Viewport({
   const autoRotateEnabled = useRef(autoRotate);
   const nodes3dEnabled = useRef(nodes3d);
   const edit3dEnabled = useRef(edit3d);
+  const cardOrientRef = useRef(cardOrient);
+  const cardTiltRef = useRef(cardTiltDeg);
   textureEnabled.current = texture;
   autoRotateEnabled.current = autoRotate;
   nodes3dEnabled.current = nodes3d;
   edit3dEnabled.current = edit3d;
+  cardOrientRef.current = cardOrient;
+  cardTiltRef.current = cardTiltDeg;
 
   useEffect(() => {
     visualSettings.current = view;
@@ -362,6 +368,22 @@ export function Viewport({
 
     const liveValueEls = new Map<string, HTMLElement>();
     const nodeObjects = new Map<string, CSS3DObject>();
+    const cardEls = new Map<string, HTMLElement>();
+    const cardInputs = new Map<string, HTMLInputElement>();
+    const dragging3d = new Set<string>();
+    let last3dTopoKey = "";
+
+    function applyCardOrientation(obj: CSS3DObject) {
+      const modeOrient = cardOrientRef.current;
+      const tiltRad = (cardTiltRef.current * Math.PI) / 180;
+      if (modeOrient === "billboard") {
+        obj.quaternion.copy(camera.quaternion);
+      } else if (modeOrient === "flat") {
+        obj.rotation.set(0, tiltRad, 0);
+      } else {
+        obj.rotation.set(0, Math.atan2(-obj.position.x, 9) + tiltRad, 0);
+      }
+    }
 
     function rebuild3DCables() {
       cables3dGroup.children.forEach((child) => {
@@ -388,7 +410,9 @@ export function Viewport({
             ? "#c9a6ca"
             : edge.from.port === "tex"
               ? "#f0b35a"
-              : "#cf8acc";
+              : edge.from.port === "skeleton"
+                ? "#68d8d6"
+                : "#cf8acc";
         const line = new Line(
           new BufferGeometry().setFromPoints(pts),
           new LineBasicMaterial({ color: lineColor, transparent: true, opacity: 0.9 }),
@@ -398,11 +422,13 @@ export function Viewport({
     }
 
     sync3dScene.current = () => {
-      liveValueEls.clear();
-      nodeObjects.clear();
-      cssGroup.clear();
-
       if (!nodes3dEnabled.current) {
+        last3dTopoKey = "";
+        liveValueEls.clear();
+        nodeObjects.clear();
+        cardEls.clear();
+        cardInputs.clear();
+        cssGroup.clear();
         rebuild3DCables();
         return;
       }
@@ -413,127 +439,181 @@ export function Viewport({
         selectedNodeId: curSelected,
       } = latestProps.current;
 
-      curProj.nodes.forEach((node, index) => {
-        const spec = nodeTypes[node.kind];
-        const accent = curMeta?.[node.id]?.color || categoryHex[spec.category] || "#ae68ad";
-        const pos = curMeta?.[node.id]?.pos3d ?? defaultPosition3D(index, curProj.nodes.length);
+      const topoKey = curProj.nodes.map((n) => `${n.id}:${n.kind}`).join("|");
+      if (topoKey !== last3dTopoKey) {
+        last3dTopoKey = topoKey;
+        liveValueEls.clear();
+        nodeObjects.clear();
+        cardEls.clear();
+        cardInputs.clear();
+        cssGroup.clear();
 
-        const el = document.createElement("div");
-        el.className = `rete-3d-card ${curSelected === node.id ? "is-selected" : ""}`;
-        el.style.setProperty("--node-accent", accent);
+        curProj.nodes.forEach((node, index) => {
+          const spec = nodeTypes[node.kind];
+          const accent = curMeta?.[node.id]?.color || categoryHex[spec.category] || "#ae68ad";
+          const pos = curMeta?.[node.id]?.pos3d ?? defaultPosition3D(index, curProj.nodes.length);
 
-        const head = document.createElement("div");
-        head.className = "rete-3d-head";
-        head.innerHTML = `<span class="rete-3d-ns">${spec.namespace}</span><strong>${spec.name} · ${node.id}</strong>`;
-        el.appendChild(head);
+          const el = document.createElement("div");
+          el.className = `rete-3d-card ${curSelected === node.id ? "is-selected" : ""}`;
+          el.style.setProperty("--node-accent", accent);
 
-        const valRow = document.createElement("div");
-        valRow.className = "rete-3d-val";
-        const outEl = document.createElement("output");
-        const initialVal = playback.runtime.getNumber(node.id);
-        outEl.textContent = Number.isFinite(initialVal) ? initialVal!.toFixed(2) : spec.category;
-        valRow.appendChild(outEl);
-        liveValueEls.set(node.id, outEl);
-        el.appendChild(valRow);
+          const head = document.createElement("div");
+          head.className = "rete-3d-head";
+          head.innerHTML = `<span class="rete-3d-ns">${spec.namespace}</span><strong>${spec.name} · ${node.id}</strong>`;
+          el.appendChild(head);
 
-        // Interactive live controls embedded directly in 3D space
-        if (node.kind === "control.number") {
-          const slider = document.createElement("input");
-          slider.type = "range";
-          slider.min = String(node.min);
-          slider.max = String(node.max);
-          slider.step = "any";
-          slider.value = String(node.initial);
-          slider.addEventListener("pointerdown", (ev) => ev.stopPropagation());
-          slider.addEventListener("input", () => {
-            const v = Number(slider.value);
-            outEl.textContent = v.toFixed(2);
-            latestProps.current.onChangeNode?.({ ...node, initial: v });
-          });
-          el.appendChild(slider);
-        } else if (node.kind === "signal.lfo") {
-          const rateWrap = document.createElement("label");
-          rateWrap.className = "rete-3d-param";
-          rateWrap.innerHTML = `<span>Hz</span>`;
-          const rateInput = document.createElement("input");
-          rateInput.type = "number";
-          rateInput.step = "0.1";
-          rateInput.min = "0";
-          rateInput.max = "20";
-          rateInput.value = String(node.rate);
-          rateInput.addEventListener("pointerdown", (ev) => ev.stopPropagation());
-          rateInput.addEventListener("change", () => {
-            const rate = Number(rateInput.value);
-            if (Number.isFinite(rate) && rate >= 0 && rate <= 100) {
-              latestProps.current.onChangeNode?.({ ...node, rate });
-            }
-          });
-          rateWrap.appendChild(rateInput);
-          el.appendChild(rateWrap);
-        } else if (node.kind === "hydra.osc" || node.kind === "hydra.kaleid") {
-          const key = node.kind === "hydra.osc" ? "freq" : "sides";
-          const wrap = document.createElement("label");
-          wrap.className = "rete-3d-param";
-          wrap.innerHTML = `<span>${key}</span>`;
-          const num = document.createElement("input");
-          num.type = "number";
-          num.step = "1";
-          num.value = String(node.kind === "hydra.osc" ? node.freq : node.sides);
-          num.addEventListener("pointerdown", (ev) => ev.stopPropagation());
-          num.addEventListener("change", () => {
-            const val = Number(num.value);
-            if (!Number.isFinite(val)) return;
-            if (node.kind === "hydra.osc") latestProps.current.onChangeNode?.({ ...node, freq: val });
-            else latestProps.current.onChangeNode?.({ ...node, sides: val });
-          });
-          wrap.appendChild(num);
-          el.appendChild(wrap);
-        }
+          const valRow = document.createElement("div");
+          valRow.className = "rete-3d-val";
+          const outEl = document.createElement("output");
+          const initialVal = playback.runtime.getNumber(node.id);
+          outEl.textContent = Number.isFinite(initialVal) ? initialVal!.toFixed(2) : spec.category;
+          valRow.appendChild(outEl);
+          liveValueEls.set(node.id, outEl);
+          el.appendChild(valRow);
 
-        const obj = new CSS3DObject(el);
-        obj.position.set(pos.x, pos.y, pos.z);
-        obj.rotation.y = Math.atan2(-pos.x, 9);
-        obj.scale.setScalar(0.011);
+          const stopInputBubble = (ev: Event) => ev.stopPropagation();
 
-        // Dragging 3D node header in Edit mode
-        head.addEventListener("pointerdown", (ev) => {
-          ev.stopPropagation();
-          latestProps.current.onSelectNode?.(node.id);
-          if (!edit3dEnabled.current) return;
-          const startX = ev.clientX;
-          const startY = ev.clientY;
-          const startPos = obj.position.clone();
-          const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
-          const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
-          const scalePerPx = 0.014;
-
-          function onMove(moveEv: PointerEvent) {
-            const dx = (moveEv.clientX - startX) * scalePerPx;
-            const dy = -(moveEv.clientY - startY) * scalePerPx;
-            const nextPos = startPos
-              .clone()
-              .addScaledVector(right, dx)
-              .addScaledVector(up, dy);
-            obj.position.copy(nextPos);
-            obj.rotation.y = Math.atan2(-nextPos.x, 9);
-            rebuild3DCables();
-          }
-          function onUp() {
-            window.removeEventListener("pointermove", onMove);
-            window.removeEventListener("pointerup", onUp);
-            latestProps.current.onMoveNode3D?.(node.id, {
-              x: Number(obj.position.x.toFixed(2)),
-              y: Number(obj.position.y.toFixed(2)),
-              z: Number(obj.position.z.toFixed(2)),
+          if (node.kind === "control.number") {
+            const slider = document.createElement("input");
+            slider.type = "range";
+            slider.min = String(node.min);
+            slider.max = String(node.max);
+            slider.step = "any";
+            slider.value = String(node.initial);
+            slider.addEventListener("pointerdown", stopInputBubble);
+            slider.addEventListener("pointermove", stopInputBubble);
+            slider.addEventListener("mousedown", stopInputBubble);
+            slider.addEventListener("touchstart", stopInputBubble);
+            slider.addEventListener("input", () => {
+              const liveNode = latestProps.current.project.nodes.find((n) => n.id === node.id);
+              if (!liveNode || liveNode.kind !== "control.number") return;
+              const v = Number(slider.value);
+              outEl.textContent = v.toFixed(2);
+              latestProps.current.onChangeNode?.({ ...liveNode, initial: v });
             });
+            el.appendChild(slider);
+            cardInputs.set(node.id, slider);
+          } else if (node.kind === "signal.lfo") {
+            const rateWrap = document.createElement("label");
+            rateWrap.className = "rete-3d-param";
+            rateWrap.innerHTML = `<span>Hz</span>`;
+            const rateInput = document.createElement("input");
+            rateInput.type = "number";
+            rateInput.step = "0.1";
+            rateInput.min = "0";
+            rateInput.max = "20";
+            rateInput.value = String(node.rate);
+            rateInput.addEventListener("pointerdown", stopInputBubble);
+            rateInput.addEventListener("change", () => {
+              const liveNode = latestProps.current.project.nodes.find((n) => n.id === node.id);
+              if (!liveNode || liveNode.kind !== "signal.lfo") return;
+              const rate = Number(rateInput.value);
+              if (Number.isFinite(rate) && rate >= 0 && rate <= 100) {
+                latestProps.current.onChangeNode?.({ ...liveNode, rate });
+              }
+            });
+            rateWrap.appendChild(rateInput);
+            el.appendChild(rateWrap);
+            cardInputs.set(node.id, rateInput);
+          } else if (node.kind === "hydra.osc" || node.kind === "hydra.kaleid") {
+            const key = node.kind === "hydra.osc" ? "freq" : "sides";
+            const wrap = document.createElement("label");
+            wrap.className = "rete-3d-param";
+            wrap.innerHTML = `<span>${key}</span>`;
+            const num = document.createElement("input");
+            num.type = "number";
+            num.step = "1";
+            num.value = String(node.kind === "hydra.osc" ? node.freq : node.sides);
+            num.addEventListener("pointerdown", stopInputBubble);
+            num.addEventListener("change", () => {
+              const liveNode = latestProps.current.project.nodes.find((n) => n.id === node.id);
+              if (!liveNode) return;
+              const val = Number(num.value);
+              if (!Number.isFinite(val)) return;
+              if (liveNode.kind === "hydra.osc") latestProps.current.onChangeNode?.({ ...liveNode, freq: val });
+              else if (liveNode.kind === "hydra.kaleid") latestProps.current.onChangeNode?.({ ...liveNode, sides: val });
+            });
+            wrap.appendChild(num);
+            el.appendChild(wrap);
+            cardInputs.set(node.id, num);
           }
-          window.addEventListener("pointermove", onMove);
-          window.addEventListener("pointerup", onUp);
-        });
 
-        cssGroup.add(obj);
-        nodeObjects.set(node.id, obj);
-      });
+          const obj = new CSS3DObject(el);
+          obj.position.set(pos.x, pos.y, pos.z);
+          applyCardOrientation(obj);
+          obj.scale.setScalar(0.011);
+
+          // Arrastre directo sobre la tarjeta 3D (fuera de inputs/sliders) sin depender de Ctrl+Q
+          el.addEventListener("pointerdown", (ev) => {
+            const target = ev.target as HTMLElement | null;
+            if (target?.closest("input, select, button, textarea")) return;
+            ev.stopPropagation();
+            latestProps.current.onSelectNode?.(node.id);
+            dragging3d.add(node.id);
+            const startX = ev.clientX;
+            const startY = ev.clientY;
+            const startPos = obj.position.clone();
+            const distScale = Math.max(0.006, obj.position.distanceTo(camera.position) * 0.00145);
+            const right = new Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+            const up = new Vector3(0, 1, 0).applyQuaternion(camera.quaternion);
+
+            function onMove(moveEv: PointerEvent) {
+              const dx = (moveEv.clientX - startX) * distScale;
+              const dy = -(moveEv.clientY - startY) * distScale;
+              const nextPos = startPos
+                .clone()
+                .addScaledVector(right, dx)
+                .addScaledVector(up, dy);
+              obj.position.copy(nextPos);
+              applyCardOrientation(obj);
+              rebuild3DCables();
+            }
+            function onUp() {
+              dragging3d.delete(node.id);
+              window.removeEventListener("pointermove", onMove);
+              window.removeEventListener("pointerup", onUp);
+              window.removeEventListener("pointercancel", onUp);
+              latestProps.current.onMoveNode3D?.(node.id, {
+                x: Number(obj.position.x.toFixed(2)),
+                y: Number(obj.position.y.toFixed(2)),
+                z: Number(obj.position.z.toFixed(2)),
+              });
+            }
+            window.addEventListener("pointermove", onMove);
+            window.addEventListener("pointerup", onUp);
+            window.addEventListener("pointercancel", onUp);
+          });
+
+          cssGroup.add(obj);
+          nodeObjects.set(node.id, obj);
+          cardEls.set(node.id, el);
+        });
+      } else {
+        // Actualización en sitio sin destruir DOM ni interrumpir sliders activos
+        curProj.nodes.forEach((node, index) => {
+          const spec = nodeTypes[node.kind];
+          const el = cardEls.get(node.id);
+          const obj = nodeObjects.get(node.id);
+          if (!el || !obj) return;
+          const accent = curMeta?.[node.id]?.color || categoryHex[spec.category] || "#ae68ad";
+          el.classList.toggle("is-selected", curSelected === node.id);
+          el.style.setProperty("--node-accent", accent);
+
+          if (!dragging3d.has(node.id)) {
+            const pos = curMeta?.[node.id]?.pos3d ?? defaultPosition3D(index, curProj.nodes.length);
+            obj.position.set(pos.x, pos.y, pos.z);
+          }
+          applyCardOrientation(obj);
+
+          const inp = cardInputs.get(node.id);
+          if (inp && document.activeElement !== inp) {
+            if (node.kind === "control.number") inp.value = String(node.initial);
+            else if (node.kind === "signal.lfo") inp.value = String(node.rate);
+            else if (node.kind === "hydra.osc") inp.value = String(node.freq);
+            else if (node.kind === "hydra.kaleid") inp.value = String(node.sides);
+          }
+        });
+      }
 
       rebuild3DCables();
     };
@@ -829,13 +909,17 @@ export function Viewport({
       cssGroup.visible = show3dNodes;
       cables3dGroup.visible = show3dNodes;
       cssRenderer.domElement.style.display = show3dNodes ? "block" : "none";
-      cssRenderer.domElement.style.pointerEvents =
-        show3dNodes && edit3dEnabled.current ? "auto" : "none";
+      cssRenderer.domElement.style.pointerEvents = "none";
 
       if (show3dNodes) {
         for (const [id, el] of liveValueEls) {
           const val = runtime.getNumber(id);
           if (Number.isFinite(val)) el.textContent = val!.toFixed(2);
+        }
+        if (cardOrientRef.current === "billboard") {
+          for (const obj of nodeObjects.values()) {
+            obj.quaternion.copy(camera.quaternion);
+          }
         }
       }
 
@@ -896,7 +980,7 @@ export function Viewport({
 
   useEffect(() => {
     sync3dScene.current();
-  }, [project, nodeMeta, selectedNodeId, nodes3d]);
+  }, [project, nodeMeta, selectedNodeId, nodes3d, cardOrient, cardTiltDeg]);
 
   async function fullscreen() {
     try {
@@ -1080,16 +1164,44 @@ export function Viewport({
         {overlay}
         {codeSlot}
         {nodes3d && mode !== "hydra" && (
-          <button
-            type="button"
-            className={`edit-3d-pill ${edit3d ? "is-active" : ""}`}
-            onClick={() => setEdit3d((v) => !v)}
-            title="Alternar entre orbitar cámara y editar nodos en 3D"
-          >
-            {edit3d
-              ? "Modo Editar Nodos 3D · Ctrl + Q para orbitar"
-              : "Modo Cámara 3D · Ctrl + Q para editar nodos"}
-          </button>
+          <div className="viewport-3d-controls">
+            <button
+              type="button"
+              className={`edit-3d-pill ${edit3d ? "is-active" : ""}`}
+              onClick={() => setEdit3d((v) => !v)}
+              title="Bloquear cámara 3D para editar sin rotar (Ctrl+Q)"
+            >
+              {edit3d
+                ? "Cámara bloqueada · Ctrl + Q para orbitar"
+                : "Nodos 3D interactivos · Ctrl + Q fija cámara"}
+            </button>
+            <div className="view-orient-bar" title="Controlar ángulo de tarjetas 3D">
+              <select
+                aria-label="Orientación de tarjetas 3D"
+                value={cardOrient}
+                onChange={(e) =>
+                  setCardOrient(e.target.value as "arc" | "flat" | "billboard")
+                }
+              >
+                <option value="arc">Arco (inclinado)</option>
+                <option value="flat">Plano (sin rotar)</option>
+                <option value="billboard">Seguir cámara</option>
+              </select>
+              {cardOrient !== "billboard" && (
+                <input
+                  type="range"
+                  min={-45}
+                  max={45}
+                  step={1}
+                  value={cardTiltDeg}
+                  title={`Ángulo ${cardTiltDeg}° (doble clic para 0°)`}
+                  aria-label="Ángulo de rotación 3D"
+                  onDoubleClick={() => setCardTiltDeg(0)}
+                  onChange={(e) => setCardTiltDeg(Number(e.target.value))}
+                />
+              )}
+            </div>
+          </div>
         )}
         {blackout && (
           <div className="viewport-blackout" role="status">
