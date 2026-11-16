@@ -48,6 +48,8 @@ import type { ReactArea2D, RenderEmit } from "rete-react-plugin";
 const { RefSocket, useConnection } = ReactPresets.classic;
 import type { Edge, Node, PortType, Project } from "../../../../packages/engine/project.ts";
 import { nodeMediaHub } from "../nodeMediaHub.ts";
+import { defaultPreferences } from "../preferences.ts";
+import type { StudioPreferences } from "../preferences.ts";
 import { familyColors, nodeTypes, positionFor } from "../studio.ts";
 import type { Layout, NodeMeta, Position } from "../studio.ts";
 
@@ -625,6 +627,7 @@ type GraphProps = {
   selected: string;
   selectedIds?: string[];
   pinnedIds?: string[];
+  prefs?: StudioPreferences;
   hidden?: boolean;
   backdrop?: boolean;
   openPaletteSignal?: number;
@@ -650,6 +653,7 @@ export function Graph({
   selected,
   selectedIds: externalSelectedIds,
   pinnedIds,
+  prefs,
   hidden,
   backdrop,
   openPaletteSignal,
@@ -692,6 +696,9 @@ export function Graph({
   const selectedIdsRef = useRef<Set<string>>(
     new Set(externalSelectedIds ?? (selected ? [selected] : [])),
   );
+  const activePrefs = prefs ?? defaultPreferences;
+  const prefsRef = useRef(activePrefs);
+  prefsRef.current = activePrefs;
   const selectModeRef = useRef(selectMode);
   const hitModeRef = useRef(hitMode);
   selectModeRef.current = selectMode;
@@ -832,7 +839,6 @@ export function Graph({
       accumulating: AreaExtensions.accumulateOnCtrl(),
     });
     AreaExtensions.simpleNodesOrder(area);
-    AreaExtensions.snapGrid(area, { size: 12, dynamic: true });
 
     const state = {
       editor,
@@ -888,6 +894,10 @@ export function Graph({
           }
         }
       } else if (context.type === "pointermove" && pickedSocket) {
+        if (!prefsRef.current.magneticSockets) {
+          clearMagnetic();
+          return context;
+        }
         const ev = (context.data as { event?: PointerEvent }).event;
         if (ev) {
           let bestDist = 36;
@@ -951,7 +961,14 @@ export function Graph({
     let multiMoving = false;
     area.addPipe((context) => {
       if (state.syncing) return context;
-      if (context.type === "nodepicked") {
+      if (context.type === "nodetranslate") {
+        const curPrefs = prefsRef.current;
+        if (curPrefs.snapToGrid) {
+          const step = Math.max(4, curPrefs.gridStep);
+          context.data.position.x = Math.round(context.data.position.x / step) * step;
+          context.data.position.y = Math.round(context.data.position.y / step) * step;
+        }
+      } else if (context.type === "nodepicked") {
         const { id } = context.data;
         state.dragging.add(id);
         const view = area.nodeViews.get(id);
@@ -986,6 +1003,7 @@ export function Graph({
         state.dragging.delete(id);
         state.dragPrevPos.delete(id);
 
+        if (!prefsRef.current.wireAutoInsert) return context;
         // Inserción automática sobre cable si es un nodo passthrough sin cables previos
         const curProj = latestRef.current.project;
         const draggedNode = curProj.nodes.find((n) => n.id === id);
@@ -1214,7 +1232,7 @@ export function Graph({
 
   return (
     <section
-      className={`panel graph-panel ${backdrop ? "is-backdrop" : ""} ${backdrop && passThrough ? "is-pass-through" : ""} ${hidden ? "is-panel-hidden" : ""}`}
+      className={`panel graph-panel ${backdrop ? "is-backdrop" : ""} ${backdrop && passThrough ? "is-pass-through" : ""} ${activePrefs.animatedWires ? "" : "no-wire-flow"} ${activePrefs.backdropBlur ? "" : "no-backdrop-blur"} ${activePrefs.showPinButtonsOnNodes ? "" : "hide-node-pins"} ${hidden ? "is-panel-hidden" : ""}`}
       aria-label="Grafo de nodos Rete"
       tabIndex={0}
       onKeyDown={(event) => {

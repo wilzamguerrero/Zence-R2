@@ -151,6 +151,8 @@ type ViewportProps = {
   onTexture?: (enabled: boolean) => void;
   mode?: "3d" | "hydra";
   onMode?: (mode: "3d" | "hydra") => void;
+  showFpsHud?: boolean;
+  cameraDamping?: boolean;
 };
 
 export function Viewport({
@@ -182,6 +184,8 @@ export function Viewport({
   bitmap,
   texture,
   onTexture,
+  showFpsHud = true,
+  cameraDamping = true,
 }: ViewportProps) {
   const container = useRef<HTMLDivElement>(null);
   const mount = useRef<HTMLDivElement>(null);
@@ -236,6 +240,7 @@ export function Viewport({
   const cardOrientRef = useRef(cardOrient);
   const cardTiltRef = useRef(cardTiltDeg);
   const overlay3dRef = useRef(overlay3dInHydra);
+  const dampingRef = useRef(cameraDamping);
   textureEnabled.current = texture;
   autoRotateEnabled.current = autoRotate;
   nodes3dEnabled.current = nodes3d;
@@ -243,6 +248,7 @@ export function Viewport({
   cardOrientRef.current = cardOrient;
   cardTiltRef.current = cardTiltDeg;
   overlay3dRef.current = overlay3dInHydra;
+  dampingRef.current = cameraDamping;
 
   useEffect(() => {
     visualSettings.current = view;
@@ -1158,6 +1164,7 @@ export function Viewport({
       }
 
       controls.enabled = !(show3dNodes && edit3dEnabled.current);
+      controls.enableDamping = dampingRef.current;
       const camAuto = sceneDesc.camera?.autoRotate ?? false;
       controls.autoRotate = (!!autoRotateEnabled.current || camAuto) && controls.enabled;
       controls.autoRotateSpeed = sceneDesc.camera ? sceneDesc.camera.speed * 1.6 : 1.6;
@@ -1491,17 +1498,19 @@ export function Viewport({
           <i />
           <i />
         </div>
-        <div className="view-meta">
-          <Crosshair size={13} />
-          <span>
-            {activeEngine === "hydra"
-              ? overlay3dInHydra
-                ? "Hydra 2D + 3D"
-                : "Hydra 960×540"
-              : "Perspectiva"}
-          </span>
-          <span className="view-fps" ref={fpsNode}>60 FPS</span>
-        </div>
+        {showFpsHud && (
+          <div className="view-meta">
+            <Crosshair size={13} />
+            <span>
+              {activeEngine === "hydra"
+                ? overlay3dInHydra
+                  ? "Hydra 2D + 3D"
+                  : "Hydra 960×540"
+                : "Perspectiva"}
+            </span>
+            <span className="view-fps" ref={fpsNode}>60 FPS</span>
+          </div>
+        )}
         <div
           style={{ visibility: mode !== "hydra" || overlay3dInHydra ? "visible" : "hidden" }}
           className="axis-triad"

@@ -30,9 +30,12 @@ import { useLiveStudio } from "./useLiveStudio.ts";
 import { Graph } from "./components/Graph.tsx";
 import { Inspector } from "./components/Inspector.tsx";
 import type { StageOutputBridge } from "./components/Inspector.tsx";
+import { PreferencesDialog } from "./components/PreferencesDialog.tsx";
 import { VersionSelector } from "./components/VersionSelector.tsx";
 import { Viewport } from "./components/Viewport.tsx";
 import { sharedMocap } from "./mocap/mocapRuntime.ts";
+import { defaultPreferences, loadPreferences, savePreferences } from "./preferences.ts";
+import type { StudioPreferences } from "./preferences.ts";
 import { APP_VERSION, currentVersionUrl, isArchiveMode } from "./version.ts";
 import { emptyHydraCode } from "./hydraFrame.ts";
 import { formatHydraCode, mutateHydraCode } from "./hydraTools.ts";
@@ -124,6 +127,8 @@ export function App() {
   const [panels, setPanels] = useState<PanelVisibility>(loadPanels);
   const [codeOverlay, setCodeOverlay] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [prefsOpen, setPrefsOpen] = useState(false);
+  const [prefs, setPrefs] = useState<StudioPreferences>(loadPreferences);
   const [paletteSignal, setPaletteSignal] = useState(0);
   const [splits, setSplits] = useState(defaultSplits);
   const [activeCue, setActiveCue] = useState<string>(defaultCues[0].id);
@@ -164,6 +169,14 @@ export function App() {
       }
     },
   );
+
+  useEffect(() => {
+    savePreferences(prefs);
+  }, [prefs]);
+
+  function changePrefs(patch: Partial<StudioPreferences>) {
+    setPrefs((current) => ({ ...current, ...patch }));
+  }
 
   useEffect(() => {
     try {
@@ -337,16 +350,16 @@ export function App() {
     } catch (error) {
       setGraphError(messageFor(error));
     }
-    const nextHydra = compileHydraCode(next) ?? emptyHydraCode;
+    const nextHydra = prefs.autoCompileHydra ? (compileHydraCode(next) ?? emptyHydraCode) : null;
     setDesign((current) => ({
       ...current,
       project: next,
-      code: nextHydra,
+      code: nextHydra ?? current.code,
       positions: position
         ? { ...current.positions, [position.id]: position.point }
         : current.positions,
     }));
-    live.run(nextHydra);
+    if (nextHydra) live.run(nextHydra);
   }
 
   function changeNodeMeta(id: string, patch: Partial<NodeMeta>) {
@@ -671,15 +684,35 @@ export function App() {
     : "minmax(0, 1fr)";
 
   return (
-    <div className="studio">
+    <div className={`studio ${prefs.reducedMotion ? "is-reduced-motion" : ""}`}>
       <header className="topbar">
         <div className="topbar-left">
-          <div className="brand">
+          <button
+            type="button"
+            className="brand brand-button"
+            aria-haspopup="dialog"
+            aria-expanded={prefsOpen}
+            title="Configuración y preferencias de Zence R2"
+            onClick={() => setPrefsOpen((o) => !o)}
+          >
             <BrandMark />
             <span className="brand-word">
               Zence <span>R2</span>
             </span>
-          </div>
+          </button>
+          <PreferencesDialog
+            open={prefsOpen}
+            prefs={prefs}
+            view={design.view}
+            onChangePrefs={changePrefs}
+            onChangeView={changeView}
+            onResetPrefs={() => setPrefs(defaultPreferences)}
+            onAutoLayout={() => {
+              setDesign((c) => ({ ...c, positions: autoLayout(c.project.nodes, c.project.edges) }));
+              setNotice("Grafo reorganizado.");
+            }}
+            onClose={() => setPrefsOpen(false)}
+          />
           <VersionSelector />
           <div className="project-title">
             <span className="title-rule" aria-hidden="true" />
@@ -861,6 +894,8 @@ export function App() {
             onToggleCodeOverlay={() => setCodeOverlay((v) => !v)}
             graphVisible={panels.graph}
             onToggleGraph={() => togglePanel("graph")}
+            showFpsHud={prefs.showFpsHud}
+            cameraDamping={prefs.cameraDamping}
             graphSlot={
               <Graph
                 backdrop
@@ -871,6 +906,7 @@ export function App() {
                 selected={selected}
                 selectedIds={selectedIds}
                 pinnedIds={pinnedIds}
+                prefs={prefs}
                 hidden={!panels.graph}
                 openPaletteSignal={paletteSignal}
                 onCloseBackdrop={() => togglePanel("graph")}
