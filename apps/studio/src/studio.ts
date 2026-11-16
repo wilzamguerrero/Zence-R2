@@ -1,6 +1,6 @@
-import { readProject } from "../../../packages/engine/project.ts";
+import { compileHydraCode, readProject } from "../../../packages/engine/project.ts";
 import type { Edge, Node, PortType, Project } from "../../../packages/engine/project.ts";
-import { defaultCode, presets } from "./hydraFrame.ts";
+import { defaultCode, emptyHydraCode, presets } from "./hydraFrame.ts";
 import example from "../../../examples/particles.zence.json";
 
 export type Position = { x: number; y: number };
@@ -619,13 +619,49 @@ export const portLabels: Record<string, string> = {
   fovMod: "FOV Mod",
 };
 
+const baseExample = readProject(example);
+const starterProject = readProject({
+  ...baseExample,
+  nodes: [
+    ...baseExample.nodes,
+    { id: "h_osc", kind: "hydra.osc", freq: 9, sync: 0.08, offset: 0.4 },
+    { id: "h_noise", kind: "hydra.noise", scale: 3, offset: 0.15 },
+    { id: "h_kaleid", kind: "hydra.kaleid", sides: 5 },
+    { id: "h_rotate", kind: "hydra.rotate", angle: 0, speed: 0.07 },
+    { id: "h_mod", kind: "hydra.modulate", amount: 0.1 },
+    { id: "h_color", kind: "hydra.color", r: 0.68, g: 0.4, b: 0.68 },
+    { id: "h_out", kind: "hydra.out", buffer: "o0" },
+  ],
+  edges: [
+    ...baseExample.edges,
+    { from: { node: "h_osc", port: "tex" }, to: { node: "h_kaleid", port: "tex" } },
+    { from: { node: "h_kaleid", port: "tex" }, to: { node: "h_rotate", port: "tex" } },
+    { from: { node: "h_rotate", port: "tex" }, to: { node: "h_mod", port: "tex" } },
+    { from: { node: "h_noise", port: "tex" }, to: { node: "h_mod", port: "modTex" } },
+    { from: { node: "intensity", port: "value" }, to: { node: "h_mod", port: "mod" } },
+    { from: { node: "h_mod", port: "tex" }, to: { node: "h_color", port: "tex" } },
+    { from: { node: "h_color", port: "tex" }, to: { node: "h_out", port: "tex" } },
+  ],
+});
+
 export const initialDocument: StudioDocument = {
   title: "dev by wilzamguerrero",
-  project: readProject(example),
-  positions: { intensity: { x: 40, y: 30 }, particles: { x: 300, y: 110 }, stage: { x: 560, y: 190 } },
+  project: starterProject,
+  positions: {
+    intensity: { x: 30, y: 20 },
+    particles: { x: 265, y: 20 },
+    stage: { x: 500, y: 20 },
+    h_osc: { x: 30, y: 205 },
+    h_noise: { x: 30, y: 365 },
+    h_kaleid: { x: 265, y: 205 },
+    h_rotate: { x: 500, y: 205 },
+    h_mod: { x: 735, y: 205 },
+    h_color: { x: 965, y: 205 },
+    h_out: { x: 1195, y: 205 },
+  },
   nodeMeta: {},
   view: initialView,
-  code: defaultCode,
+  code: compileHydraCode(starterProject) ?? defaultCode,
   bpm: 120,
   cues: defaultCues,
 };
@@ -833,7 +869,9 @@ export function loadDocument(input: unknown, filename: string): StudioDocument {
     project,
     positions,
     nodeMeta: metadata?.nodeMeta && typeof metadata.nodeMeta === "object" ? metadata.nodeMeta : {},
-    code: typeof metadata?.code === "string" ? metadata.code.slice(0, 100000) : defaultCode,
+    code: typeof metadata?.code === "string"
+      ? metadata.code.slice(0, 100000)
+      : (compileHydraCode(project) ?? emptyHydraCode),
     bpm,
     cues,
     view: {

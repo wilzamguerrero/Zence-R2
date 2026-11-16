@@ -5,6 +5,9 @@ export const defaultCode = `osc(9, 0.08, 0.4)
   .color(0.68, 0.40, 0.68)
   .out(o0)`;
 
+export const emptyHydraCode = `// Sin nodos TOP/Hydra conectados a Out
+solid(0.125, 0.125, 0.125, 1).out(o0)`;
+
 export const presets = {
   Órbitas: defaultCode,
   Materia: `noise(4, 0.15)

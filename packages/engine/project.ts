@@ -670,7 +670,7 @@ export function readProject(value: unknown): Project {
   if (data.schemaVersion !== 1) throw new TypeError("Unsupported project version");
   return {
     schemaVersion: 1,
-    scene: name(data.scene),
+    scene: data.scene === "" ? "" : name(data.scene),
     nodes: list(data.nodes).map(readNode),
     edges: list(data.edges).map((value) => {
       const edge = object(value);
@@ -687,7 +687,7 @@ function compile(project: Project): NodePlan[] {
     nodes.set(node.id, { node, sources: new Map() });
     consumers.set(node.id, []);
   }
-  if (nodes.get(project.scene)?.node.kind !== "scene.points") {
+  if (project.scene !== "" && nodes.get(project.scene)?.node.kind !== "scene.points") {
     throw new Error("Scene must reference a scene.points node");
   }
 
@@ -1495,11 +1495,11 @@ export class ProjectRuntime {
   }
 
   get pointCount(): number {
-    return this.scenes.get(this.sceneId)!.length;
+    return (this.scenes.get(this.sceneId) ?? []).length;
   }
 
   writePositions(buffer: Float32Array): void {
-    const points = this.scenes.get(this.sceneId)!;
+    const points = this.scenes.get(this.sceneId) ?? [];
     if (buffer.length < points.length * 3) throw new RangeError("Position buffer is too small");
     for (let index = 0; index < points.length; index += 1) {
       const { x, y, z } = points[index];
@@ -1511,6 +1511,6 @@ export class ProjectRuntime {
   }
 
   snapshot(): Point3[] {
-    return this.scenes.get(this.sceneId)!.map((point) => ({ ...point }));
+    return (this.scenes.get(this.sceneId) ?? []).map((point) => ({ ...point }));
   }
 }

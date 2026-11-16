@@ -254,4 +254,14 @@ test("TouchDesigner TOP, CHOP, SOP, MAT, DAT, and COMP families compile and exec
   assert.equal(desc.light?.intensity, 4);
   const textMedia = desc.mediaNodes.find((m) => m.id === "textTop");
   assert.equal(textMedia?.text, "ZENCE LIVE");
+
+  const emptySceneRuntime = new ProjectRuntime({
+    schemaVersion: 1,
+    scene: "",
+    nodes: [{ id: "g1", kind: "sop.sphere", radius: 1, segments: 12 }],
+    edges: [],
+  });
+  assert.equal(emptySceneRuntime.pointCount, 0);
+  assert.deepEqual(emptySceneRuntime.snapshot(), []);
+  assert.equal(compileHydraCode({ schemaVersion: 1, scene: "", nodes: [], edges: [] }), null);
 });

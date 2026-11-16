@@ -43,6 +43,7 @@ import { Inspector } from "./components/Inspector.tsx";
 import { VersionSelector } from "./components/VersionSelector.tsx";
 import { Viewport } from "./components/Viewport.tsx";
 import { APP_VERSION, currentVersionUrl, isArchiveMode } from "./version.ts";
+import { emptyHydraCode } from "./hydraFrame.ts";
 import { formatHydraCode, mutateHydraCode } from "./hydraTools.ts";
 import { durationTicks, Playback } from "./playback.ts";
 import {
@@ -303,16 +304,16 @@ export function App() {
     } catch (error) {
       setGraphError(messageFor(error));
     }
-    const compiledHydra = compileHydraCode(next);
+    const nextHydra = compileHydraCode(next) ?? emptyHydraCode;
     setDesign((current) => ({
       ...current,
       project: next,
-      code: compiledHydra ?? current.code,
+      code: nextHydra,
       positions: position
         ? { ...current.positions, [position.id]: position.point }
         : current.positions,
     }));
-    if (compiledHydra) live.run(compiledHydra);
+    live.run(nextHydra);
   }
 
   function changeNodeMeta(id: string, patch: Partial<NodeMeta>) {
@@ -396,7 +397,11 @@ export function App() {
     );
     const y = Math.max(bottom + 140, 24);
     applyTopology(
-      { ...project, nodes: [...project.nodes, created] },
+      {
+        ...project,
+        scene: kind === "scene.points" && !project.scene ? created.id : project.scene,
+        nodes: [...project.nodes, created],
+      },
       { id: created.id, point: { x: 48, y } },
     );
     setSelected(created.id);

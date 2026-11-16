@@ -1091,6 +1091,7 @@ export function Viewport({
           sopMeshes.delete(id);
         }
       }
+      cloud.visible = runtime.pointCount > 0;
       if (attribute?.count !== runtime.pointCount) {
         geometry.dispose();
         geometry = new BufferGeometry();
@@ -1102,9 +1103,12 @@ export function Viewport({
         geometry.setAttribute("position", attribute);
         cloud.geometry = geometry;
       }
-      if (tick !== lastTick || runtime !== lastRuntime) {
+      if (runtime.pointCount > 0 && (tick !== lastTick || runtime !== lastRuntime)) {
         runtime.writePositions(attribute.array as Float32Array);
         attribute.needsUpdate = true;
+        lastTick = tick;
+        lastRuntime = runtime;
+      } else if (runtime !== lastRuntime) {
         lastTick = tick;
         lastRuntime = runtime;
       }
