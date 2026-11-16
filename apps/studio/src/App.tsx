@@ -21,16 +21,17 @@ import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
 import { compileHydraCode } from "../../../packages/engine/project.ts";
 import type { Edge, Node, Project } from "../../../packages/engine/project.ts";
 import { fixedStepSeconds } from "../../../packages/engine/clock.ts";
-import { Assistant } from "./components/Assistant.tsx";
 import { BrandMark } from "./components/BrandMark.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import type { PaletteAction } from "./components/CommandPalette.tsx";
+import { FloatingAssistant } from "./components/FloatingAssistant.tsx";
 import { LiveCode, OverlayCode } from "./components/LiveCode.tsx";
 import { useLiveStudio } from "./useLiveStudio.ts";
 import { Graph } from "./components/Graph.tsx";
 import { Inspector } from "./components/Inspector.tsx";
 import type { StageOutputBridge } from "./components/Inspector.tsx";
 import { PreferencesDialog } from "./components/PreferencesDialog.tsx";
+import type { PrefTab } from "./components/PreferencesDialog.tsx";
 import { VersionSelector } from "./components/VersionSelector.tsx";
 import { Viewport } from "./components/Viewport.tsx";
 import { sharedMocap } from "./mocap/mocapRuntime.ts";
@@ -128,6 +129,7 @@ export function App() {
   const [codeOverlay, setCodeOverlay] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [prefsOpen, setPrefsOpen] = useState(false);
+  const [prefsTab, setPrefsTab] = useState<PrefTab>("graph");
   const [prefs, setPrefs] = useState<StudioPreferences>(loadPreferences);
   const [paletteSignal, setPaletteSignal] = useState(0);
   const [splits, setSplits] = useState(defaultSplits);
@@ -693,7 +695,10 @@ export function App() {
             aria-haspopup="dialog"
             aria-expanded={prefsOpen}
             title="Configuración y preferencias de Zence R2"
-            onClick={() => setPrefsOpen((o) => !o)}
+            onClick={() => {
+              setPrefsTab("graph");
+              setPrefsOpen((o) => !o);
+            }}
           >
             <BrandMark />
             <span className="brand-word">
@@ -702,6 +707,7 @@ export function App() {
           </button>
           <PreferencesDialog
             open={prefsOpen}
+            initialTab={prefsTab}
             prefs={prefs}
             view={design.view}
             onChangePrefs={changePrefs}
@@ -1059,14 +1065,6 @@ export function App() {
             onRemove={remove}
             onScene={(id) => applyTopology({ ...project, scene: id })}
           />
-
-          <Assistant
-            document={design}
-            onApply={(code) => {
-              live.setAutomatic(false);
-              setDesign((current) => ({ ...current, code }));
-            }}
-          />
         </aside>
 
         {!anyVisible && (
@@ -1210,6 +1208,9 @@ export function App() {
             min={0}
             max={durationTicks}
             value={tick}
+            style={{
+              "--timeline-progress": `${durationTicks > 0 ? Math.min(100, Math.max(0, (tick / durationTicks) * 100)) : 0}%`,
+            } as React.CSSProperties}
             onChange={(event) => {
               playback.playing = false;
               setPlaying(false);
@@ -1266,6 +1267,61 @@ export function App() {
           </span>
         </div>
       </footer>
+
+      <FloatingAssistant
+        reducedMotion={prefs.reducedMotion}
+        onOpenAiSettings={() => {
+          setPrefsTab("ai");
+          setPrefsOpen(true);
+        }}
+        context={{
+          project,
+          positions: design.positions,
+          code: design.code,
+          view: design.view,
+          mode: live.mode,
+          texture: live.texture,
+          onApplyGraph: (nextProject, nextPositions, selectId) => {
+            try {
+              playback.replace(nextProject);
+              setGraphError("");
+            } catch (error) {
+              setGraphError(messageFor(error));
+            }
+            const nextHydra = prefs.autoCompileHydra
+              ? (compileHydraCode(nextProject) ?? emptyHydraCode)
+              : null;
+            setDesign((current) => ({
+              ...current,
+              project: nextProject,
+              code: nextHydra ?? current.code,
+              positions: nextPositions ?? current.positions,
+            }));
+            if (nextHydra) live.run(nextHydra);
+            if (selectId) setSelected(selectId);
+          },
+          onRunHydra: (code) => {
+            live.setAutomatic(false);
+            setDesign((current) => ({ ...current, code }));
+            live.run(code);
+          },
+          onSetView: changeView,
+          onSetEngine: (engine) => {
+            if (engine === "hydra") {
+              live.setMode("hydra");
+              live.setTexture(false);
+            } else if (engine === "hydra3d") {
+              live.setMode("3d");
+              live.setTexture(true);
+            } else {
+              live.setMode("3d");
+              live.setTexture(false);
+            }
+          },
+          onAutoLayout: () =>
+            setDesign((c) => ({ ...c, positions: autoLayout(c.project.nodes, c.project.edges) })),
+        }}
+      />
     </div>
   );
 }

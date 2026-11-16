@@ -2,9 +2,13 @@ import { RotateCcw, Sliders, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import type { StudioPreferences } from "../preferences.ts";
 import type { ViewSettings } from "../studio.ts";
+import { AiSettingsTab } from "./AiSettingsTab.tsx";
+
+export type PrefTab = "graph" | "viewport" | "ui" | "ai";
 
 type PreferencesDialogProps = {
   open: boolean;
+  initialTab?: PrefTab;
   prefs: StudioPreferences;
   view: ViewSettings;
   onChangePrefs: (patch: Partial<StudioPreferences>) => void;
@@ -14,10 +18,9 @@ type PreferencesDialogProps = {
   onClose: () => void;
 };
 
-type PrefTab = "graph" | "viewport" | "ui";
-
 export function PreferencesDialog({
   open,
+  initialTab,
   prefs,
   view,
   onChangePrefs,
@@ -26,8 +29,12 @@ export function PreferencesDialog({
   onAutoLayout,
   onClose,
 }: PreferencesDialogProps) {
-  const [tab, setTab] = useState<PrefTab>("graph");
+  const [tab, setTab] = useState<PrefTab>(initialTab ?? "graph");
   const panelRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (open && initialTab) setTab(initialTab);
+  }, [open, initialTab]);
 
   useEffect(() => {
     if (!open) return;
@@ -80,7 +87,7 @@ export function PreferencesDialog({
   return (
     <div
       ref={panelRef}
-      className="prefs-dialog"
+      className={`prefs-dialog ${tab === "ai" ? "is-wide" : ""}`}
       role="dialog"
       aria-label="Configuración de Zence R2"
     >
@@ -130,9 +137,19 @@ export function PreferencesDialog({
         >
           Interfaz
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === "ai"}
+          className={tab === "ai" ? "is-active" : ""}
+          onClick={() => setTab("ai")}
+        >
+          IA / API
+        </button>
       </div>
 
       <div className="prefs-body">
+        {tab === "ai" && <AiSettingsTab />}
         {tab === "graph" && (
           <>
             {toggleRow(

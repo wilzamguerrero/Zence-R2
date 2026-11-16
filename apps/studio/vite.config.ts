@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { Plugin } from "vite";
+import { zenceAiApiPlugin } from "./viteAiPlugin.ts";
 
 const here = import.meta.dirname;
 
@@ -55,6 +56,6 @@ export default defineConfig(() => {
       __APP_VERSION__: JSON.stringify(appVersion),
       __IS_ARCHIVE__: JSON.stringify(isArchive),
     },
-    plugins: [versionHtmlPlugin(appVersion, isArchive)],
+    plugins: [versionHtmlPlugin(appVersion, isArchive), zenceAiApiPlugin(resolve(here, "../../api"))],
   };
 });
