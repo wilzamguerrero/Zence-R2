@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="theme-color" content="#18161b" />
+    <meta name="theme-color" content="#202020" />
     <title>Zence R2 — Estudio Audiovisual</title>
     <style>
       #splash {
@@ -14,10 +14,8 @@
         flex-direction: column;
         align-items: center;
         justify-content: center;
-        gap: 28px;
-        background:
-          radial-gradient(circle at 50% 44%, rgba(174, 104, 173, 0.14), transparent 56%),
-          #141216;
+        gap: 24px;
+        background: #202020;
         font: 13px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
         transition: opacity 380ms ease;
       }
@@ -27,101 +25,28 @@
         pointer-events: none;
       }
 
-      /* Escena radial audiovisual de Zence R2 */
+      /* Marco brutalista de ondas op-art para Zence R2 */
       .splash-stage {
         position: relative;
-        width: 184px;
-        height: 184px;
-        display: grid;
-        place-items: center;
+        width: 176px;
+        height: 196px;
+        border: 1.5px solid #3c3c3c;
+        background: #202020;
+        overflow: hidden;
       }
 
-      .splash-stage::before {
+      .splash-stage::after {
         content: "";
         position: absolute;
-        inset: 12px;
-        border-radius: 50%;
-        background: radial-gradient(circle, rgba(174, 104, 173, 0.24) 0%, rgba(174, 104, 173, 0.06) 46%, transparent 72%);
-        filter: blur(8px);
-        animation: splash-core-pulse 2.2s ease-in-out infinite alternate;
+        inset: 0;
+        border: 1px solid rgba(174, 104, 173, 0.32);
+        pointer-events: none;
       }
 
-      .splash-radial {
-        position: relative;
-        width: 184px;
-        height: 184px;
-        overflow: visible;
-      }
-
-      .splash-spin-cw {
-        transform-origin: 92px 92px;
-        animation: splash-spin 16s linear infinite;
-      }
-
-      .splash-spin-ccw {
-        transform-origin: 92px 92px;
-        animation: splash-spin 9.5s linear infinite reverse;
-      }
-
-      .splash-rays {
-        transform-origin: 92px 92px;
-        animation: splash-spin 22s linear infinite;
-      }
-
-      .splash-rays line {
-        stroke: #cf8acc;
-        stroke-linecap: round;
-        transform-origin: 92px 92px;
-        animation: splash-ray-pulse 1.15s ease-in-out infinite alternate;
-      }
-
-      .splash-rays line:nth-child(3n) {
-        stroke: #f5f3f4;
-        animation-delay: -0.35s;
-      }
-
-      .splash-rays line:nth-child(4n) {
-        stroke: #ae68ad;
-        animation-delay: -0.75s;
-      }
-
-      .splash-rays line:nth-child(5n) {
-        animation-delay: -0.18s;
-      }
-
-      .splash-core-ring {
-        transform-origin: 92px 92px;
-        animation: splash-ring-breathe 1.6s ease-in-out infinite alternate;
-      }
-
-      .splash-core-dot {
-        transform-origin: 92px 92px;
-        animation: splash-dot-breathe 1.1s ease-in-out infinite alternate;
-      }
-
-      @keyframes splash-spin {
-        from { transform: rotate(0deg); }
-        to   { transform: rotate(360deg); }
-      }
-
-      @keyframes splash-ray-pulse {
-        0%   { opacity: 0.28; transform: scale(0.86); }
-        100% { opacity: 1; transform: scale(1.06); }
-      }
-
-      @keyframes splash-ring-breathe {
-        0%   { transform: scale(0.94); opacity: 0.72; }
-        100% { transform: scale(1.04); opacity: 1; }
-      }
-
-      @keyframes splash-dot-breathe {
-        0%   { transform: scale(0.82); opacity: 0.85; }
-        100% { transform: scale(1.12); opacity: 1; }
-      }
-
-      @keyframes splash-core-pulse {
-        0%   { opacity: 0.65; transform: scale(0.92); }
-        100% { opacity: 1; transform: scale(1.08); }
+      .splash-brutal {
+        display: block;
+        width: 100%;
+        height: 100%;
       }
 
       .splash-brand {
@@ -170,33 +95,6 @@
         text-indent: 0.24em;
       }
 
-      /* Barras de señal audiovisual */
-      .splash-wave {
-        display: flex;
-        align-items: flex-end;
-        gap: 4px;
-        height: 16px;
-        margin-top: 4px;
-      }
-
-      .splash-wave i {
-        display: block;
-        width: 3px;
-        height: 4px;
-        background: #ae68ad;
-        animation: splash-bar 0.9s ease-in-out infinite alternate;
-      }
-
-      .splash-wave i:nth-child(2) { animation-delay: 0.12s; background: #cf8acc; }
-      .splash-wave i:nth-child(3) { animation-delay: 0.24s; background: #f5f3f4; }
-      .splash-wave i:nth-child(4) { animation-delay: 0.36s; background: #cf8acc; }
-      .splash-wave i:nth-child(5) { animation-delay: 0.48s; }
-
-      @keyframes splash-bar {
-        from { height: 4px; opacity: 0.45; }
-        to   { height: 16px; opacity: 1; }
-      }
-
       .splash-dev {
         position: absolute;
         right: 18px;
@@ -211,7 +109,6 @@
 
       .splash-dev-tag {
         padding: 0 5px;
-        border-radius: 3px;
         background: rgba(174, 104, 173, 0.16);
         color: #cf8acc;
         font-size: 9px;
@@ -221,16 +118,6 @@
       }
 
       @media (prefers-reduced-motion: reduce) {
-        .splash-stage::before,
-        .splash-spin-cw,
-        .splash-spin-ccw,
-        .splash-rays,
-        .splash-rays line,
-        .splash-core-ring,
-        .splash-core-dot,
-        .splash-wave i {
-          animation: none;
-        }
         #splash { transition: none; }
       }
     </style>
@@ -240,62 +127,7 @@
 
     <div id="splash" role="status" aria-label="Cargando Zence R2">
       <div class="splash-stage" aria-hidden="true">
-        <svg class="splash-radial" viewBox="0 0 184 184" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs>
-            <radialGradient id="zence-core" cx="50%" cy="50%" r="50%">
-              <stop offset="0%" stop-color="#f5f3f4" stop-opacity="0.95" />
-              <stop offset="35%" stop-color="#cf8acc" stop-opacity="0.85" />
-              <stop offset="72%" stop-color="#ae68ad" stop-opacity="0.32" />
-              <stop offset="100%" stop-color="#141216" stop-opacity="0" />
-            </radialGradient>
-          </defs>
-          <!-- Anillo exterior segmentado -->
-          <g class="splash-spin-cw">
-            <circle cx="92" cy="92" r="84" stroke="rgba(174,104,173,0.28)" stroke-width="1.2" stroke-dasharray="14 8 4 8" />
-            <circle cx="92" cy="92" r="76" stroke="#ae68ad" stroke-width="2.2" stroke-dasharray="28 18 8 18" stroke-linecap="round" opacity="0.82" />
-            <circle cx="92" cy="8" r="2.6" fill="#f5f3f4" />
-            <circle cx="176" cy="92" r="2.6" fill="#cf8acc" />
-            <circle cx="92" cy="176" r="2.6" fill="#f5f3f4" />
-            <circle cx="8" cy="92" r="2.6" fill="#cf8acc" />
-          </g>
-          <!-- Barras espectrales radiales -->
-          <g class="splash-rays" stroke-width="2.2">
-            <line x1="92" y1="30" x2="92" y2="45" />
-            <line x1="92" y1="30" x2="92" y2="49" transform="rotate(15 92 92)" />
-            <line x1="92" y1="32" x2="92" y2="45" transform="rotate(30 92 92)" />
-            <line x1="92" y1="27" x2="92" y2="51" transform="rotate(45 92 92)" />
-            <line x1="92" y1="31" x2="92" y2="46" transform="rotate(60 92 92)" />
-            <line x1="92" y1="29" x2="92" y2="49" transform="rotate(75 92 92)" />
-            <line x1="92" y1="30" x2="92" y2="45" transform="rotate(90 92 92)" />
-            <line x1="92" y1="28" x2="92" y2="50" transform="rotate(105 92 92)" />
-            <line x1="92" y1="31" x2="92" y2="46" transform="rotate(120 92 92)" />
-            <line x1="92" y1="27" x2="92" y2="51" transform="rotate(135 92 92)" />
-            <line x1="92" y1="30" x2="92" y2="47" transform="rotate(150 92 92)" />
-            <line x1="92" y1="32" x2="92" y2="45" transform="rotate(165 92 92)" />
-            <line x1="92" y1="28" x2="92" y2="50" transform="rotate(180 92 92)" />
-            <line x1="92" y1="31" x2="92" y2="46" transform="rotate(195 92 92)" />
-            <line x1="92" y1="29" x2="92" y2="49" transform="rotate(210 92 92)" />
-            <line x1="92" y1="27" x2="92" y2="51" transform="rotate(225 92 92)" />
-            <line x1="92" y1="31" x2="92" y2="46" transform="rotate(240 92 92)" />
-            <line x1="92" y1="30" x2="92" y2="48" transform="rotate(255 92 92)" />
-            <line x1="92" y1="28" x2="92" y2="50" transform="rotate(270 92 92)" />
-            <line x1="92" y1="32" x2="92" y2="45" transform="rotate(285 92 92)" />
-            <line x1="92" y1="29" x2="92" y2="49" transform="rotate(300 92 92)" />
-            <line x1="92" y1="27" x2="92" y2="51" transform="rotate(315 92 92)" />
-            <line x1="92" y1="30" x2="92" y2="46" transform="rotate(330 92 92)" />
-            <line x1="92" y1="31" x2="92" y2="49" transform="rotate(345 92 92)" />
-          </g>
-          <!-- Anillo medio contrarrotatorio -->
-          <g class="splash-spin-ccw">
-            <circle cx="92" cy="92" r="56" stroke="#cf8acc" stroke-width="1.6" stroke-dasharray="10 6 2 6" opacity="0.78" />
-            <circle cx="92" cy="92" r="46" stroke="rgba(245,243,244,0.34)" stroke-width="1" stroke-dasharray="3 5" />
-          </g>
-          <!-- Anillos y núcleo central -->
-          <circle class="splash-core-ring" cx="92" cy="92" r="34" stroke="#ae68ad" stroke-width="3.2" opacity="0.92" />
-          <circle class="splash-core-ring" cx="92" cy="92" r="24" stroke="#f5f3f4" stroke-width="1.4" opacity="0.86" />
-          <circle class="splash-core-dot" cx="92" cy="92" r="17" fill="url(#zence-core)" />
-          <circle class="splash-core-dot" cx="92" cy="92" r="5" fill="#141216" stroke="#cf8acc" stroke-width="2" />
-        </svg>
+        <canvas class="splash-brutal" id="splash-canvas" width="176" height="196"></canvas>
       </div>
 
       <div class="splash-brand">
@@ -304,12 +136,56 @@
         <p class="splash-version">Alpha 0.0.1</p>
       </div>
 
-      <div class="splash-wave" aria-hidden="true">
-        <i></i><i></i><i></i><i></i><i></i>
-      </div>
-
       <p class="splash-dev"><span class="splash-dev-tag">DEV</span>wilzamguerrero</p>
     </div>
+
+    <script>
+      (() => {
+        const canvas = document.getElementById("splash-canvas");
+        if (!canvas) return;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        const w = canvas.width;
+        const h = canvas.height;
+        const img = ctx.createImageData(w, h);
+        const data = img.data;
+        const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+        const t0 = performance.now();
+
+        function draw(now) {
+          if (!document.body.contains(canvas)) return;
+          const t = (now - t0) * 0.0014;
+          let p = 0;
+          for (let y = 0; y < h; y++) {
+            const ny = (y / h) * 2 - 1;
+            for (let x = 0; x < w; x++) {
+              const nx = (x / w) * 2 - 1;
+              // Campo de curvatura op-art estilo brutalista (bandas líquidas en movimiento)
+              const dx = nx + 0.55;
+              const dy = ny + 0.35;
+              const r1 = Math.hypot(dx, dy);
+              const r2 = Math.hypot(nx - 0.65, ny - 0.55);
+              const warp =
+                Math.sin(nx * 2.4 + Math.cos(ny * 2.1 - t * 0.9)) * 0.72 +
+                Math.cos(ny * 2.7 - Math.sin(nx * 1.9 + t * 0.75)) * 0.54;
+              const field = r1 * 4.4 - r2 * 1.95 + warp - t * 0.85;
+              const stripe = Math.sin(field * Math.PI);
+              // Borde nítido (anti-aliased estrecho) entre #202020 (32) y #f5f3f4 (245,243,244)
+              const k = stripe > 0.06 ? 1 : stripe < -0.06 ? 0 : (stripe + 0.06) / 0.12;
+              data[p] = 32 + (245 - 32) * k;
+              data[p + 1] = 32 + (243 - 32) * k;
+              data[p + 2] = 32 + (244 - 32) * k;
+              data[p + 3] = 255;
+              p += 4;
+            }
+          }
+          ctx.putImageData(img, 0, 0);
+          if (!reduced) requestAnimationFrame(draw);
+        }
+
+        requestAnimationFrame(draw);
+      })();
+    </script>
 
     <script type="module" src="/src/main.tsx"></script>
   </body>
