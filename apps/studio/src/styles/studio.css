@@ -1955,6 +1955,65 @@ h1 {
   cursor: pointer;
 }
 
+.props-bin-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 6px 10px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ink-dim);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+}
+
+.prop-card {
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.015);
+  margin-bottom: 10px;
+  overflow: hidden;
+}
+
+.prop-card.is-pinned {
+  border-color: rgba(174, 104, 173, 0.65);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+
+.prop-card .inspector-title {
+  gap: 6px;
+}
+
+.prop-pin-btn.is-active,
+.rete-node-pin.is-active {
+  background: var(--accent);
+  color: var(--accent-text);
+  border-color: var(--accent);
+}
+
+.rete-node-pin {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--ink-dim);
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.rete-node-pin:hover {
+  border-color: var(--accent);
+  color: var(--ink-bright);
+}
+
 .mocap-panel h4 {
   display: flex;
   align-items: center;

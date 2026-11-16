@@ -12,10 +12,11 @@ import { convertFbxToGlb, humanBytes, type FbxConversionStats } from "../mocap/f
 import { sharedMocap, type MocapQuality } from "../mocap/mocapRuntime.ts";
 
 type MocapPanelProps = {
+  section?: "mocap" | "fbx" | "all";
   onLoadModelFile?: (file: File) => void;
 };
 
-export function MocapPanel({ onLoadModelFile }: MocapPanelProps) {
+export function MocapPanel({ section = "all", onLoadModelFile }: MocapPanelProps) {
   const [, setTick] = useState(0);
   const [fbxBusy, setFbxBusy] = useState(false);
   const [fbxStatus, setFbxStatus] = useState("");
@@ -59,9 +60,12 @@ export function MocapPanel({ onLoadModelFile }: MocapPanelProps) {
     setTimeout(() => URL.revokeObjectURL(url), 4000);
   }
 
+  const showMocap = section === "all" || section === "mocap";
+  const showFbx = section === "all" || section === "fbx";
+
   return (
     <>
-      <div className="inspector-section mocap-panel">
+      {showMocap && <div className="inspector-section mocap-panel">
         <h4>
           <PersonStanding size={13} /> Mocap Cuerpo + Manos
         </h4>
@@ -168,9 +172,9 @@ export function MocapPanel({ onLoadModelFile }: MocapPanelProps) {
             <option value="heavy">Heavy (Precisión)</option>
           </select>
         </label>
-      </div>
+      </div>}
 
-      <div className="inspector-section fbx-panel">
+      {showFbx && <div className="inspector-section fbx-panel">
         <h4>Conversor FBX → GLB</h4>
         <div className="mocap-actions">
           <button
@@ -205,7 +209,7 @@ export function MocapPanel({ onLoadModelFile }: MocapPanelProps) {
           />
         </div>
         {fbxStatus && <p className="inspector-note">{fbxStatus}</p>}
-      </div>
+      </div>}
     </>
   );
 }

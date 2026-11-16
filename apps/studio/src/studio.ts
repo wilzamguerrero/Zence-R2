@@ -582,6 +582,19 @@ export const nodeTypes: Record<Node["kind"], NodeMetaSpec> = {
     inputs: [{ key: "fovMod", label: "FOV Mod", type: "number", optional: true }],
     outputs: [],
   },
+  "comp.output": {
+    label: "Window / Stage Out COMP",
+    name: "StageOut",
+    namespace: "Ops.COMP.Output",
+    category: "COMP",
+    description: "Proyección de programa, grabación de video, remoto celular, cues y blackout",
+    inputs: [
+      { key: "tex", label: "Textura", type: "hydra", optional: true },
+      { key: "points", label: "Puntos", type: "points", optional: true },
+      { key: "geo", label: "Geometría", type: "geometry", optional: true },
+    ],
+    outputs: [],
+  },
   "scene.skeletonRig": {
     label: "Bone / Rig COMP",
     name: "SkeletonRig",
@@ -767,6 +780,7 @@ export function makeNode(kind: Node["kind"], nodes: Node[]): Node {
     "comp.geo": "geoComp",
     "comp.light": "lightComp",
     "comp.camera": "camComp",
+    "comp.output": "stageOut",
     "mocap.body": "bodyMocap",
     "mocap.hands": "handsMocap",
     "scene.skeletonRig": "skeletonRig",
@@ -825,6 +839,7 @@ export function makeNode(kind: Node["kind"], nodes: Node[]): Node {
     case "comp.geo": return { id, kind, visible: true, autoSpin: 0.35 };
     case "comp.light": return { id, kind, color: "#ffffff", intensity: 3, x: 5, y: 6, z: 4 };
     case "comp.camera": return { id, kind, fov: 37, autoRotate: false, speed: 1.6 };
+    case "comp.output": return { id, kind, blackout: false };
     case "mocap.body": return { id, kind, mirror: true, smoothing: 0.35, scale: 1 };
     case "mocap.hands": return { id, kind, smoothing: 0.4, fingers: true, spreadGain: 1 };
     case "scene.skeletonRig": return { id, kind, showBones: true, showJoints: true, retargetModel: true, jointSize: 1 };

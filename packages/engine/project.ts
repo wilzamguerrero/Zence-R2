@@ -66,6 +66,7 @@ export type Node =
   | { id: string; kind: "comp.geo"; visible: boolean; autoSpin: number }
   | { id: string; kind: "comp.light"; color: string; intensity: number; x: number; y: number; z: number }
   | { id: string; kind: "comp.camera"; fov: number; autoRotate: boolean; speed: number }
+  | { id: string; kind: "comp.output"; blackout: boolean }
   | { id: string; kind: "mocap.body"; mirror: boolean; smoothing: number; scale: number }
   | { id: string; kind: "mocap.hands"; smoothing: number; fingers: boolean; spreadGain: number }
   | {
@@ -239,6 +240,14 @@ const ports: Record<Node["kind"], Ports> = {
   },
   "comp.light": { inputs: { intensityMod: { type: "number", optional: true } }, outputs: {} },
   "comp.camera": { inputs: { fovMod: { type: "number", optional: true } }, outputs: {} },
+  "comp.output": {
+    inputs: {
+      tex: { type: "hydra", optional: true },
+      points: { type: "points", optional: true },
+      geo: { type: "geometry", optional: true },
+    },
+    outputs: {},
+  },
   "mocap.body": { inputs: {}, outputs: { skeleton: "skeleton", value: "number" } },
   "mocap.hands": {
     inputs: { skeleton: { type: "skeleton", optional: true } },
@@ -601,6 +610,12 @@ function readNode(value: unknown): Node {
         fov: number(node.fov ?? 37),
         autoRotate: typeof node.autoRotate === "boolean" ? node.autoRotate : false,
         speed: number(node.speed ?? 1.6),
+      };
+    case "comp.output":
+      return {
+        id,
+        kind: node.kind,
+        blackout: typeof node.blackout === "boolean" ? node.blackout : false,
       };
     case "mocap.body": {
       const smoothing = number(node.smoothing);

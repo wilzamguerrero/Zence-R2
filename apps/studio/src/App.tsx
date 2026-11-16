@@ -1,8 +1,6 @@
 import {
   Activity,
   AlertCircle,
-  BookmarkPlus,
-  Camera,
   Code2,
   Command,
   Dices,
@@ -10,22 +8,13 @@ import {
   Eye,
   EyeOff,
   FolderOpen,
-  ImagePlus,
   Layers,
-  Mic,
-  MicOff,
-  Monitor,
-  MonitorPlay,
   Pause,
   Play,
   RotateCcw,
   SlidersHorizontal,
-  Smartphone,
-  Video,
   Wand2,
-  Webcam,
   Workflow,
-  Zap,
 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
@@ -40,8 +29,10 @@ import { LiveCode, OverlayCode } from "./components/LiveCode.tsx";
 import { useLiveStudio } from "./useLiveStudio.ts";
 import { Graph } from "./components/Graph.tsx";
 import { Inspector } from "./components/Inspector.tsx";
+import type { StageOutputBridge } from "./components/Inspector.tsx";
 import { VersionSelector } from "./components/VersionSelector.tsx";
 import { Viewport } from "./components/Viewport.tsx";
+import { sharedMocap } from "./mocap/mocapRuntime.ts";
 import { APP_VERSION, currentVersionUrl, isArchiveMode } from "./version.ts";
 import { emptyHydraCode } from "./hydraFrame.ts";
 import { formatHydraCode, mutateHydraCode } from "./hydraTools.ts";
@@ -118,7 +109,14 @@ function timestamp(tick: number): string {
 export function App() {
   const [design, setDesign] = useState<StudioDocument>(initialDocument);
   const [playback] = useState(() => new Playback(initialDocument.project));
-  const [selected, setSelected] = useState(initialDocument.project.nodes[0].id);
+  const [selectedIds, setSelectedIds] = useState<string[]>(() =>
+    initialDocument.project.nodes[0]?.id ? [initialDocument.project.nodes[0].id] : [],
+  );
+  const [pinnedIds, setPinnedIds] = useState<string[]>([]);
+  const selected = selectedIds[0] ?? "";
+  const setSelected = (id: string) => setSelectedIds(id ? [id] : []);
+  const togglePin = (id: string) =>
+    setPinnedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
   const [graphError, setGraphError] = useState("");
   const [notice, setNotice] = useState("");
   const [tick, setTick] = useState(initialTick);
@@ -130,7 +128,6 @@ export function App() {
   const [splits, setSplits] = useState(defaultSplits);
   const [activeCue, setActiveCue] = useState<string>(defaultCues[0].id);
   const input = useRef<HTMLInputElement>(null);
-  const mediaInput = useRef<HTMLInputElement>(null);
   const workspaceRef = useRef<HTMLElement>(null);
   const centerRef = useRef<HTMLDivElement>(null);
   const tapMarks = useRef<number[]>([]);
@@ -138,7 +135,19 @@ export function App() {
   const project = design.project;
   const bpm = design.bpm ?? 120;
   const cues = design.cues ?? defaultCues;
-  const node = project.nodes.find(({ id }) => id === selected);
+  const inspectedNodes = useMemo(() => {
+    const visibleIds: string[] = [];
+    const seen = new Set<string>();
+    for (const id of [...selectedIds, ...pinnedIds]) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        visibleIds.push(id);
+      }
+    }
+    return visibleIds
+      .map((id) => project.nodes.find((n) => n.id === id))
+      .filter((n): n is Node => !!n);
+  }, [project.nodes, selectedIds, pinnedIds]);
   void tick;
   const liveValues = playback.runtime.getNumbers();
 
@@ -230,10 +239,34 @@ export function App() {
 
   const toggleMicRef = useRef(live.toggleMicrophone);
   toggleMicRef.current = live.toggleMicrophone;
+  const stageActionsRef = useRef({
+    project: live.openProjection,
+    blackout: live.setBlackout,
+  });
+  stageActionsRef.current = {
+    project: live.openProjection,
+    blackout: live.setBlackout,
+  };
   useEffect(() => {
     const onToggleMic = () => void toggleMicRef.current();
+    const onStageAction = (ev: Event) => {
+      const action = (ev as CustomEvent<string>).detail;
+      if (action === "project") stageActionsRef.current.project();
+      else if (action === "blackout-on") stageActionsRef.current.blackout(true);
+      else if (action === "blackout-off") stageActionsRef.current.blackout(false);
+    };
+    const onMocapToggle = () => {
+      if (sharedMocap.state.active) sharedMocap.stop();
+      else void sharedMocap.startWebcam();
+    };
     window.addEventListener("zence:toggle-mic", onToggleMic);
-    return () => window.removeEventListener("zence:toggle-mic", onToggleMic);
+    window.addEventListener("zence:stage-action", onStageAction);
+    window.addEventListener("zence:mocap-toggle", onMocapToggle);
+    return () => {
+      window.removeEventListener("zence:toggle-mic", onToggleMic);
+      window.removeEventListener("zence:stage-action", onStageAction);
+      window.removeEventListener("zence:mocap-toggle", onMocapToggle);
+    };
   }, []);
 
   function applyPresetLayout(preset: "studio" | "live" | "hydra" | "stage") {
@@ -473,7 +506,12 @@ export function App() {
         Object.entries(current.nodeMeta ?? {}).filter(([key]) => key !== id),
       ),
     }));
-    setSelected(nodes[0]?.id ?? "");
+    setPinnedIds((prev) => prev.filter((item) => item !== id));
+    setSelectedIds((prev) => {
+      const next = prev.filter((item) => item !== id);
+      if (next.length > 0) return next;
+      return nodes[0]?.id ? [nodes[0].id] : [];
+    });
   }
 
   function changeView(patch: Partial<ViewSettings>) {
@@ -831,10 +869,14 @@ export function App() {
                 nodeMeta={design.nodeMeta}
                 values={liveValues}
                 selected={selected}
+                selectedIds={selectedIds}
+                pinnedIds={pinnedIds}
                 hidden={!panels.graph}
                 openPaletteSignal={paletteSignal}
                 onCloseBackdrop={() => togglePanel("graph")}
                 onSelect={setSelected}
+                onSelectMany={setSelectedIds}
+                onTogglePin={togglePin}
                 onChangeNode={changeNode}
                 onMove={(id, point) =>
                   setDesign((current) => ({
@@ -929,150 +971,53 @@ export function App() {
 
         <aside
           className={`panel dock-panel ${panels.inspector ? "" : "is-panel-hidden"}`}
-          aria-label="Salida, cues e inspector"
+          aria-label="Propiedades de operadores"
         >
           <div className="panel-heading">
             <h2>
-              <SlidersHorizontal size={14} /> Control &amp; Salida
+              <SlidersHorizontal size={14} /> Propiedades
             </h2>
             <button
               type="button"
               className="icon-button"
-              title="Ocultar Inspector (Alt+4)"
-              aria-label="Ocultar Inspector"
+              title="Ocultar Propiedades (Alt+4)"
+              aria-label="Ocultar Propiedades"
               onClick={() => togglePanel("inspector")}
             >
               <EyeOff size={13} />
             </button>
           </div>
 
-          <div className="extra-actions">
-            <button
-              type="button"
-              className="button"
-              aria-pressed={live.projecting}
-              onClick={live.openProjection}
-            >
-              <MonitorPlay size={13} /> Proyectar
-            </button>
-            <button
-              type="button"
-              className="button"
-              onClick={() => void live.showRemote()}
-            >
-              <Smartphone size={13} /> Celular
-            </button>
-            <button
-              type="button"
-              className="button"
-              aria-pressed={live.microphone}
-              onClick={() => void live.toggleMicrophone()}
-            >
-              {live.microphone ? <MicOff size={13} /> : <Mic size={13} />}
-              {live.microphone ? "Silenciar" : "Micrófono"}
-            </button>
-            <button
-              type="button"
-              className="button"
-              data-recording={live.recording}
-              aria-pressed={live.recording}
-              onClick={live.toggleRecording}
-            >
-              {live.recording ? <Camera size={13} /> : <Video size={13} />}
-              {live.recording ? "Detener" : "Grabar"}
-            </button>
-            <button
-              type="button"
-              className="button"
-              aria-pressed={live.liveSource === "camera"}
-              title="Cámara web en s0"
-              onClick={live.toggleCamera}
-            >
-              <Webcam size={13} /> Cámara
-            </button>
-            <button
-              type="button"
-              className="button"
-              aria-pressed={live.liveSource === "screen"}
-              title="Compartir pantalla en s0"
-              onClick={live.toggleScreen}
-            >
-              <Monitor size={13} /> Pantalla
-            </button>
-            <button
-              type="button"
-              className="button"
-              onClick={() => mediaInput.current?.click()}
-            >
-              <ImagePlus size={13} /> Medio
-            </button>
-            <button
-              type="button"
-              className="button blackout-button"
-              aria-pressed={live.blackout}
-              title="Blackout de salida (Alt+B)"
-              onClick={() => live.setBlackout(!live.blackout)}
-            >
-              <Zap size={13} /> Blackout
-            </button>
-            <input
-              hidden
-              type="file"
-              accept="image/*,video/*"
-              ref={mediaInput}
-              onChange={(event) => {
-                const file = event.target.files?.[0];
-                if (file) live.send({ type: "media", file });
-                event.target.value = "";
-              }}
-            />
-          </div>
-
-          <div className="cue-deck" aria-label="Banco de cues">
-            <div className="cue-deck-head">
-              <span>Banco de Cues</span>
-              <small>Clic dispara · icono guarda</small>
-            </div>
-            <div className="cue-grid">
-              {cues.map((cue) => (
-                <div
-                  key={cue.id}
-                  className={`cue-slot ${activeCue === cue.id ? "is-active" : ""}`}
-                >
-                  <button
-                    type="button"
-                    className="cue-trigger"
-                    onClick={() => triggerCue(cue)}
-                  >
-                    <span
-                      className="cue-swatch"
-                      style={{ background: cue.color }}
-                      aria-hidden="true"
-                    />
-                    <span>{cue.name}</span>
-                  </button>
-                  <button
-                    type="button"
-                    className="cue-capture"
-                    title={`Guardar estado actual en ${cue.name}`}
-                    aria-label={`Guardar en ${cue.name}`}
-                    onClick={() => captureCue(cue.id)}
-                  >
-                    <BookmarkPlus size={12} />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-
           <Inspector
             project={project}
-            node={node}
-            meta={node ? design.nodeMeta?.[node.id] : undefined}
-            liveValue={node ? liveValues[node.id] : undefined}
+            nodes={inspectedNodes}
+            pinnedIds={pinnedIds}
+            nodeMeta={design.nodeMeta}
+            liveValues={liveValues}
             view={design.view}
+            stageOutput={
+              {
+                projecting: live.projecting,
+                recording: live.recording,
+                blackout: live.blackout,
+                cues,
+                activeCue,
+                onOpenProjection: live.openProjection,
+                onShowRemote: () => void live.showRemote(),
+                onToggleRecording: live.toggleRecording,
+                onBlackout: live.setBlackout,
+                onTriggerCue: triggerCue,
+                onCaptureCue: captureCue,
+              } satisfies StageOutputBridge
+            }
             onNode={changeNode}
             onNodeMeta={changeNodeMeta}
+            onTogglePin={togglePin}
+            onDismissNode={(id) => {
+              setPinnedIds((prev) => prev.filter((x) => x !== id));
+              setSelectedIds((prev) => prev.filter((x) => x !== id));
+            }}
+            onClearPinned={() => setPinnedIds([])}
             onView={changeView}
             onUnlink={unlink}
             onRemove={remove}

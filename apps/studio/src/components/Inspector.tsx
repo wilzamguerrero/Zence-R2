@@ -1,8 +1,11 @@
 import {
   Activity,
+  BookmarkPlus,
   Box,
   Calculator,
   Camera,
+  ChevronDown,
+  ChevronRight,
   CircleDot,
   Copy,
   Disc,
@@ -16,12 +19,16 @@ import {
   Lightbulb,
   Link2Off,
   Mic,
+  MonitorPlay,
   Move3d,
   Palette,
   PersonStanding,
+  Pin,
+  PinOff,
   Radio,
   RotateCw,
   Sliders,
+  Smartphone,
   Sparkles,
   Sun,
   Table2,
@@ -29,7 +36,10 @@ import {
   Trash2,
   Type,
   User,
+  Video,
   Waves,
+  X,
+  Zap,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 import type {
@@ -50,7 +60,7 @@ import type {
 } from "../../../../packages/engine/project.ts";
 import { nodeMediaHub } from "../nodeMediaHub.ts";
 import { cablesSwatches, nodeTypes, portLabels } from "../studio.ts";
-import type { NodeMeta, ViewSettings } from "../studio.ts";
+import type { CueSlot, NodeMeta, ViewSettings } from "../studio.ts";
 import { MocapPanel } from "./MocapPanel.tsx";
 
 const icons: Record<Node["kind"], typeof Activity> = {
@@ -99,6 +109,7 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "comp.geo": Box,
   "comp.light": Lightbulb,
   "comp.camera": Camera,
+  "comp.output": MonitorPlay,
   "mocap.body": PersonStanding,
   "mocap.hands": Hand,
   "scene.skeletonRig": User,
@@ -108,14 +119,33 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "scene.points": Box,
 };
 
+export type StageOutputBridge = {
+  projecting: boolean;
+  recording: boolean;
+  blackout: boolean;
+  cues: CueSlot[];
+  activeCue: string;
+  onOpenProjection: () => void;
+  onShowRemote: () => void;
+  onToggleRecording: () => void;
+  onBlackout: (next: boolean) => void;
+  onTriggerCue: (cue: CueSlot) => void;
+  onCaptureCue: (id: string) => void;
+};
+
 type InspectorProps = {
   project: Project;
-  node: Node | undefined;
-  meta?: NodeMeta;
-  liveValue?: number;
+  nodes: Node[];
+  pinnedIds: string[];
+  nodeMeta?: Record<string, NodeMeta>;
+  liveValues: Record<string, number>;
   view: ViewSettings;
+  stageOutput?: StageOutputBridge;
   onNode: (node: Node) => void;
   onNodeMeta: (id: string, patch: Partial<NodeMeta>) => void;
+  onTogglePin: (id: string) => void;
+  onDismissNode: (id: string) => void;
+  onClearPinned: () => void;
   onView: (patch: Partial<ViewSettings>) => void;
   onUnlink: (edge: Edge) => void;
   onRemove: (id: string) => void;
@@ -124,36 +154,132 @@ type InspectorProps = {
 
 export function Inspector({
   project,
-  node,
-  meta,
-  liveValue,
+  nodes,
+  pinnedIds,
+  nodeMeta,
+  liveValues,
   view,
+  stageOutput,
   onNode,
   onNodeMeta,
+  onTogglePin,
+  onDismissNode,
+  onClearPinned,
   onView,
   onUnlink,
   onRemove,
   onScene,
 }: InspectorProps) {
-  const [copied, setCopied] = useState(false);
   const [, setMediaRev] = useState(0);
   useEffect(() => nodeMediaHub.subscribe(() => setMediaRev((r) => r + 1)), []);
-  const description = node ? nodeTypes[node.kind] : undefined;
-  const Icon = node ? icons[node.kind] : Box;
-  const incoming = project.edges.filter((edge) => edge.to.node === node?.id);
+  const pinnedSet = new Set(pinnedIds);
+
+  return (
+    <div className="inspector-body" aria-label="Propiedades de operadores">
+      {(nodes.length > 1 || pinnedIds.length > 0) && (
+        <div className="props-bin-bar">
+          <span>
+            {nodes.length} {nodes.length === 1 ? "panel" : "paneles"}
+            {pinnedIds.length > 0 ? ` · ${pinnedIds.length} fijado(s)` : ""}
+          </span>
+          {pinnedIds.length > 0 && (
+            <button
+              type="button"
+              className="preset-pill"
+              title="Desfijar todos los paneles"
+              onClick={onClearPinned}
+            >
+              <PinOff size={11} /> Desfijar todo
+            </button>
+          )}
+        </div>
+      )}
+
+      {nodes.length === 0 ? (
+        <div className="inspector-section">
+          <p className="inspector-note">
+            Selecciona uno o más nodos en el grafo (clic, Área o Lazo) o fíjalos con el icono de pin para ver sus parámetros aquí.
+          </p>
+        </div>
+      ) : (
+        nodes.map((node) => (
+          <NodePropertyCard
+            key={node.id}
+            project={project}
+            node={node}
+            pinned={pinnedSet.has(node.id)}
+            meta={nodeMeta?.[node.id]}
+            liveValue={liveValues[node.id]}
+            view={view}
+            stageOutput={stageOutput}
+            onNode={onNode}
+            onNodeMeta={onNodeMeta}
+            onTogglePin={() => onTogglePin(node.id)}
+            onDismiss={() => onDismissNode(node.id)}
+            onView={onView}
+            onUnlink={onUnlink}
+            onRemove={onRemove}
+            onScene={onScene}
+          />
+        ))
+      )}
+    </div>
+  );
+}
+
+type CardProps = {
+  project: Project;
+  node: Node;
+  pinned: boolean;
+  meta?: NodeMeta;
+  liveValue?: number;
+  view: ViewSettings;
+  stageOutput?: StageOutputBridge;
+  onNode: (node: Node) => void;
+  onNodeMeta: (id: string, patch: Partial<NodeMeta>) => void;
+  onTogglePin: () => void;
+  onDismiss: () => void;
+  onView: (patch: Partial<ViewSettings>) => void;
+  onUnlink: (edge: Edge) => void;
+  onRemove: (id: string) => void;
+  onScene: (id: string) => void;
+};
+
+function NodePropertyCard({
+  project,
+  node,
+  pinned,
+  meta,
+  liveValue,
+  view,
+  stageOutput,
+  onNode,
+  onNodeMeta,
+  onTogglePin,
+  onDismiss,
+  onView,
+  onUnlink,
+  onRemove,
+  onScene,
+}: CardProps) {
+  const [copied, setCopied] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
+  const description = nodeTypes[node.kind];
+  const Icon = icons[node.kind];
+  const incoming = project.edges.filter((edge) => edge.to.node === node.id);
   const isSignal =
-    node?.kind === "control.number" ||
-    node?.kind === "signal.lfo" ||
-    node?.kind === "signal.timer" ||
-    node?.kind === "signal.smooth" ||
-    node?.kind === "signal.mapRange" ||
-    node?.kind === "signal.math" ||
-    node?.kind === "chop.noise" ||
-    node?.kind === "chop.audioIn" ||
-    node?.kind === "chop.speed" ||
-    node?.kind === "chop.analyze" ||
-    node?.kind === "dat.evaluate" ||
-    node?.kind === "dat.table";
+    node.kind === "control.number" ||
+    node.kind === "signal.lfo" ||
+    node.kind === "signal.timer" ||
+    node.kind === "signal.smooth" ||
+    node.kind === "signal.mapRange" ||
+    node.kind === "signal.math" ||
+    node.kind === "chop.noise" ||
+    node.kind === "chop.audioIn" ||
+    node.kind === "chop.speed" ||
+    node.kind === "chop.analyze" ||
+    node.kind === "dat.evaluate" ||
+    node.kind === "dat.table";
 
   function copyRef(id: string) {
     void navigator.clipboard?.writeText(`control("${id}")`);
@@ -212,32 +338,60 @@ export function Inspector({
   }
 
   return (
-    <div className="inspector-body" aria-label="Inspector de operador">
-      {node && description ? (
+    <div className={`prop-card ${pinned ? "is-pinned" : ""}`} data-prop-node={node.id}>
+      <div className="inspector-title">
+        <button
+          type="button"
+          className="icon-button"
+          title={collapsed ? "Expandir parámetros" : "Contraer parámetros"}
+          aria-label={collapsed ? "Expandir" : "Contraer"}
+          onClick={() => setCollapsed((c) => !c)}
+        >
+          {collapsed ? <ChevronRight size={13} /> : <ChevronDown size={13} />}
+        </button>
+        <span
+          className="node-icon"
+          style={meta?.color ? { color: meta.color } : undefined}
+        >
+          <Icon size={16} />
+        </span>
+        <div className="inspector-title-text">
+          <small>{description.namespace} · {node.id}</small>
+          <h3>Op {description.name}</h3>
+        </div>
+        {isSignal && (
+          <button
+            type="button"
+            className="icon-button"
+            title={`Copiar control("${node.id}")`}
+            aria-label={`Copiar control("${node.id}")`}
+            onClick={() => copyRef(node.id)}
+          >
+            <Copy size={12} />
+          </button>
+        )}
+        <button
+          type="button"
+          className={`icon-button prop-pin-btn ${pinned ? "is-active" : ""}`}
+          title={pinned ? "Desfijar este panel (Nuke Pin)" : "Fijar este panel para ver varios nodos a la vez"}
+          aria-label={`Fijar ${node.id}`}
+          aria-pressed={pinned}
+          onClick={onTogglePin}
+        >
+          <Pin size={12} />
+        </button>
+        <button
+          type="button"
+          className="icon-button"
+          title="Cerrar panel de propiedades"
+          aria-label={`Cerrar ${node.id}`}
+          onClick={onDismiss}
+        >
+          <X size={12} />
+        </button>
+      </div>
+      {!collapsed && (
         <>
-          <div className="inspector-title">
-            <span
-              className="node-icon"
-              style={meta?.color ? { color: meta.color } : undefined}
-            >
-              <Icon size={17} />
-            </span>
-            <div className="inspector-title-text">
-              <small>{description.namespace} · {node.id}</small>
-              <h3>Op {description.name}</h3>
-            </div>
-            {isSignal && (
-              <button
-                type="button"
-                className="icon-button"
-                title={`Copiar control("${node.id}")`}
-                aria-label={`Copiar control("${node.id}")`}
-                onClick={() => copyRef(node.id)}
-              >
-                <Copy size={13} />
-              </button>
-            )}
-          </div>
           <p className="inspector-desc">{description.description}</p>
           {copied && (
             <div className="inspector-copied">
@@ -1111,7 +1265,113 @@ export function Inspector({
                 {numInput("Velocidad órbita", node.speed, (speed) => onNode({ ...node, speed }), { min: 0, max: 10, step: 0.1 })}
               </>
             )}
+
+            {node.kind === "comp.output" && stageOutput && (
+              <>
+                <div className="extra-actions" style={{ padding: 0, borderBottom: 0 }}>
+                  <button
+                    type="button"
+                    className="button"
+                    aria-pressed={stageOutput.projecting}
+                    onClick={stageOutput.onOpenProjection}
+                  >
+                    <MonitorPlay size={13} /> Proyectar
+                  </button>
+                  <button
+                    type="button"
+                    className="button"
+                    onClick={stageOutput.onShowRemote}
+                  >
+                    <Smartphone size={13} /> Celular
+                  </button>
+                  <button
+                    type="button"
+                    className="button"
+                    data-recording={stageOutput.recording}
+                    aria-pressed={stageOutput.recording}
+                    onClick={stageOutput.onToggleRecording}
+                  >
+                    <Video size={13} /> {stageOutput.recording ? "Detener" : "Grabar"}
+                  </button>
+                  <button
+                    type="button"
+                    className="button blackout-button"
+                    aria-pressed={stageOutput.blackout}
+                    title="Blackout de salida (Alt+B)"
+                    onClick={() => {
+                      const nextB = !stageOutput.blackout;
+                      stageOutput.onBlackout(nextB);
+                      onNode({ ...node, blackout: nextB });
+                    }}
+                  >
+                    <Zap size={13} /> Blackout
+                  </button>
+                </div>
+                <div className="cue-deck" style={{ padding: "8px 0 0", borderBottom: 0 }} aria-label="Banco de cues">
+                  <div className="cue-deck-head">
+                    <span>Banco de Cues</span>
+                    <small>Clic dispara · icono guarda</small>
+                  </div>
+                  <div className="cue-grid">
+                    {stageOutput.cues.map((cue) => (
+                      <div
+                        key={cue.id}
+                        className={`cue-slot ${stageOutput.activeCue === cue.id ? "is-active" : ""}`}
+                      >
+                        <button
+                          type="button"
+                          className="cue-trigger"
+                          onClick={() => stageOutput.onTriggerCue(cue)}
+                        >
+                          <span
+                            className="cue-swatch"
+                            style={{ background: cue.color }}
+                            aria-hidden="true"
+                          />
+                          <span>{cue.name}</span>
+                        </button>
+                        <button
+                          type="button"
+                          className="cue-capture"
+                          title={`Guardar estado actual en ${cue.name}`}
+                          aria-label={`Guardar en ${cue.name}`}
+                          onClick={() => stageOutput.onCaptureCue(cue.id)}
+                        >
+                          <BookmarkPlus size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </>
+            )}
           </div>
+
+          {(node.kind === "mocap.body" || node.kind === "mocap.hands") && (
+            <MocapPanel section="mocap" />
+          )}
+          {node.kind === "scene.skeletonRig" && <MocapPanel section="all" />}
+          {node.kind === "sop.fileIn" && <MocapPanel section="fbx" />}
+
+          {node.kind === "scene.points" && (
+            <div className="inspector-section appearance">
+              <h4>Aspecto de Partículas y Escena</h4>
+              {colorInput("Color partículas", view.color, (color) => onView({ color }))}
+              <label className="field">
+                Tamaño
+                <input
+                  type="range"
+                  min={1}
+                  max={9}
+                  step={0.5}
+                  value={view.size}
+                  onChange={(event) => onView({ size: Number(event.target.value) })}
+                />
+              </label>
+              {boolInput("Cuadrícula", view.grid, (grid) => onView({ grid }))}
+              {boolInput("Órbitas guía", view.guides, (guides) => onView({ guides }))}
+            </div>
+          )}
 
           {isSignal && Number.isFinite(liveValue) && (
             <div className="inspector-section">
@@ -1177,64 +1437,15 @@ export function Inspector({
               onChange={(e) => onNodeMeta(node.id, { comment: e.target.value })}
             />
           </div>
+
+          <button
+            className="button remove-node"
+            type="button"
+            onClick={() => onRemove(node.id)}
+          >
+            <Trash2 size={13} /> Eliminar nodo
+          </button>
         </>
-      ) : (
-        <div className="inspector-section">
-          <p className="inspector-note">Selecciona un nodo para editarlo.</p>
-        </div>
-      )}
-
-      <MocapPanel />
-
-      <div className="inspector-section appearance">
-        <h4>Aspecto de la escena</h4>
-        <label className="field">
-          Color
-          <input
-            type="color"
-            value={view.color}
-            onChange={(event) => onView({ color: event.target.value })}
-          />
-        </label>
-        <label className="field">
-          Tamaño
-          <input
-            type="range"
-            min={1}
-            max={9}
-            step={0.5}
-            value={view.size}
-            onChange={(event) => onView({ size: Number(event.target.value) })}
-          />
-        </label>
-        <label className="field">
-          Cuadrícula
-          <input
-            type="checkbox"
-            role="switch"
-            checked={view.grid}
-            onChange={(event) => onView({ grid: event.target.checked })}
-          />
-        </label>
-        <label className="field">
-          Órbitas guía
-          <input
-            type="checkbox"
-            role="switch"
-            checked={view.guides}
-            onChange={(event) => onView({ guides: event.target.checked })}
-          />
-        </label>
-      </div>
-
-      {node && (
-        <button
-          className="button remove-node"
-          type="button"
-          onClick={() => onRemove(node.id)}
-        >
-          <Trash2 size={13} /> Eliminar nodo
-        </button>
       )}
     </div>
   );

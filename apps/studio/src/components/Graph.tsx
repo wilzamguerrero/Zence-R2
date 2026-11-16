@@ -19,9 +19,11 @@ import {
   Maximize,
   Mic,
   Minus,
+  MonitorPlay,
   Move,
   Palette,
   PersonStanding,
+  Pin,
   Plus,
   Radio,
   RotateCw,
@@ -95,6 +97,7 @@ const icons: Record<Node["kind"], typeof Activity> = {
   "comp.geo": Box,
   "comp.light": Lightbulb,
   "comp.camera": Camera,
+  "comp.output": MonitorPlay,
   "mocap.body": PersonStanding,
   "mocap.hands": Hand,
   "scene.skeletonRig": User,
@@ -129,8 +132,10 @@ class ZenceReteNode extends ClassicPreset.Node {
   customColor?: string;
   liveValue?: number;
   isSelected = false;
+  isPinned = false;
   onChangeValue?: (node: Node) => void;
   onSelectNode?: (id: string) => void;
+  onTogglePin?: (id: string) => void;
   onDisconnectPort?: (nodeId: string, portKey: string) => void;
 
   constructor(node: Node) {
@@ -256,6 +261,8 @@ function nodeSummary(node: Node): string {
       return `int ${node.intensity}`;
     case "comp.camera":
       return `fov ${node.fov}°`;
+    case "comp.output":
+      return node.blackout ? "BLACKOUT" : "Programa en vivo";
     case "mocap.body":
       return node.mirror ? `espejo · ${node.scale}×` : `directo · ${node.scale}×`;
     case "mocap.hands":
@@ -446,6 +453,43 @@ function NodeMediaInline({ node, onChange }: { node: Node; onChange?: (n: Node) 
       </div>
     );
   }
+  if (node.kind === "comp.output") {
+    return (
+      <div className="rete-inline-media" onPointerDown={stop} onMouseDown={stop}>
+        <button
+          type="button"
+          className="rete-inline-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent("zence:stage-action", { detail: "project" }))}
+        >
+          Proyectar
+        </button>
+        <button
+          type="button"
+          className={`rete-inline-btn ${node.blackout ? "is-active" : ""}`}
+          onClick={() => {
+            const next = !node.blackout;
+            onChange?.({ ...node, blackout: next });
+            window.dispatchEvent(new CustomEvent("zence:stage-action", { detail: next ? "blackout-on" : "blackout-off" }));
+          }}
+        >
+          Blackout
+        </button>
+      </div>
+    );
+  }
+  if (node.kind === "mocap.body" || node.kind === "mocap.hands") {
+    return (
+      <div className="rete-inline-media" onPointerDown={stop} onMouseDown={stop}>
+        <button
+          type="button"
+          className="rete-inline-btn"
+          onClick={() => window.dispatchEvent(new CustomEvent("zence:mocap-toggle"))}
+        >
+          Cámara Mocap
+        </button>
+      </div>
+    );
+  }
   return null;
 }
 
@@ -483,6 +527,20 @@ function ReteNodeCard({
           <small>{spec.namespace} · {node.id}</small>
           <strong>{spec.name}</strong>
         </div>
+        <button
+          type="button"
+          className={`rete-node-pin ${data.isPinned ? "is-active" : ""}`}
+          title={data.isPinned ? "Desfijar parámetros (Nuke Pin)" : "Fijar parámetros en Inspector (Nuke Pin)"}
+          aria-label={`Fijar parámetros de ${node.id}`}
+          aria-pressed={data.isPinned}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            data.onTogglePin?.(node.id);
+          }}
+        >
+          <Pin size={10} />
+        </button>
         <span className="td-family-tag">{spec.category}</span>
       </div>
 
@@ -573,11 +631,15 @@ type GraphProps = {
   nodeMeta?: Record<string, NodeMeta>;
   values: Record<string, number>;
   selected: string;
+  selectedIds?: string[];
+  pinnedIds?: string[];
   hidden?: boolean;
   backdrop?: boolean;
   openPaletteSignal?: number;
   onCloseBackdrop?: () => void;
   onSelect: (id: string) => void;
+  onSelectMany?: (ids: string[]) => void;
+  onTogglePin?: (id: string) => void;
   onChangeNode: (node: Node) => void;
   onMove: (id: string, position: Position) => void;
   onConnectEdge: (edge: Edge) => void;
@@ -594,11 +656,15 @@ export function Graph({
   nodeMeta,
   values,
   selected,
+  selectedIds: externalSelectedIds,
+  pinnedIds,
   hidden,
   backdrop,
   openPaletteSignal,
   onCloseBackdrop,
   onSelect,
+  onSelectMany,
+  onTogglePin,
   onChangeNode,
   onMove,
   onConnectEdge,
@@ -623,19 +689,32 @@ export function Graph({
   const [selectMode, setSelectMode] = useState<"pan" | "marquee" | "lasso">("pan");
   const [hitMode, setHitMode] = useState<"rect" | "center">("rect");
   const [passThrough, setPassThrough] = useState(false);
-  const [selectedIds, setSelectedIds] = useState<string[]>(selected ? [selected] : []);
+  const [selectedIds, setSelectedIds] = useState<string[]>(
+    externalSelectedIds ?? (selected ? [selected] : []),
+  );
   const [marqueeShape, setMarqueeShape] = useState<{
     kind: "marquee" | "lasso";
     points: Array<{ x: number; y: number }>;
   } | null>(null);
 
-  const selectedIdsRef = useRef<Set<string>>(new Set(selected ? [selected] : []));
+  const selectedIdsRef = useRef<Set<string>>(
+    new Set(externalSelectedIds ?? (selected ? [selected] : [])),
+  );
   const selectModeRef = useRef(selectMode);
   const hitModeRef = useRef(hitMode);
   selectModeRef.current = selectMode;
   hitModeRef.current = hitMode;
 
   useEffect(() => {
+    if (externalSelectedIds) {
+      const extKey = externalSelectedIds.join(",");
+      const curKey = Array.from(selectedIdsRef.current).join(",");
+      if (extKey !== curKey) {
+        selectedIdsRef.current = new Set(externalSelectedIds);
+        setSelectedIds(externalSelectedIds);
+      }
+      return;
+    }
     if (selected && !selectedIdsRef.current.has(selected)) {
       selectedIdsRef.current = new Set([selected]);
       setSelectedIds([selected]);
@@ -643,7 +722,7 @@ export function Graph({
       selectedIdsRef.current = new Set();
       setSelectedIds([]);
     }
-  }, [selected]);
+  }, [selected, externalSelectedIds]);
 
   const handleSelectToken = (token: string) => {
     if (token.startsWith("__toggle__:")) {
@@ -651,15 +730,30 @@ export function Graph({
       const next = new Set(selectedIdsRef.current);
       if (next.has(id)) next.delete(id);
       else next.add(id);
+      const arr = Array.from(next);
       selectedIdsRef.current = next;
-      setSelectedIds(Array.from(next));
-      if (next.size > 0) onSelect(id);
+      setSelectedIds(arr);
+      if (latestRef.current.onSelectMany) {
+        latestRef.current.onSelectMany(arr);
+      } else if (arr.length > 0) {
+        onSelect(arr[arr.length - 1]);
+      }
     } else {
-      if (!selectedIdsRef.current.has(token) || selectedIdsRef.current.size > 1) {
+      // Si el nodo ya pertenece a una multi-selección activa (Área / Lazo), mantenla intacta para poder arrastrar o inspeccionar juntos
+      if (selectedIdsRef.current.has(token) && selectedIdsRef.current.size > 1) {
+        return;
+      }
+      if (!selectedIdsRef.current.has(token) || selectedIdsRef.current.size !== 1) {
         selectedIdsRef.current = new Set([token]);
         setSelectedIds([token]);
+        if (latestRef.current.onSelectMany) {
+          latestRef.current.onSelectMany([token]);
+        } else {
+          onSelect(token);
+        }
+      } else {
+        onSelect(token);
       }
-      onSelect(token);
     }
   };
 
@@ -669,7 +763,10 @@ export function Graph({
     nodeMeta,
     values,
     selected,
+    pinnedIds,
     onSelect: handleSelectToken,
+    onSelectMany,
+    onTogglePin,
     onChangeNode,
     onMove,
     onConnectEdge,
@@ -682,7 +779,10 @@ export function Graph({
     nodeMeta,
     values,
     selected,
+    pinnedIds,
     onSelect: handleSelectToken,
+    onSelectMany,
+    onTogglePin,
     onChangeNode,
     onMove,
     onConnectEdge,
@@ -964,10 +1064,13 @@ export function Graph({
       nodeMeta: curMeta,
       values: curValues,
       selected: curSelected,
+      pinnedIds: curPinnedIds,
       onSelect: curOnSelect,
+      onTogglePin: curOnTogglePin,
       onChangeNode: curOnChange,
       onRemoveEdge: curOnRemoveEdge,
     } = latestRef.current;
+    const pinnedSet = new Set(curPinnedIds ?? []);
 
     const nextKey = JSON.stringify({
       nodes: curProject.nodes.map((n) => [n.id, n.kind]),
@@ -986,7 +1089,9 @@ export function Graph({
           reteNode.customColor = curMeta?.[n.id]?.color;
           reteNode.liveValue = curValues[n.id];
           reteNode.isSelected = selectedIdsRef.current.has(n.id) || n.id === curSelected;
+          reteNode.isPinned = pinnedSet.has(n.id);
           reteNode.onSelectNode = curOnSelect;
+          reteNode.onTogglePin = curOnTogglePin;
           reteNode.onChangeValue = curOnChange;
           reteNode.onDisconnectPort = (nodeId, portKey) => {
             const match = latestRef.current.project.edges.find(
@@ -1033,7 +1138,9 @@ export function Graph({
           reteNode.customColor = curMeta?.[n.id]?.color;
           reteNode.liveValue = curValues[n.id];
           reteNode.isSelected = selectedIdsRef.current.has(n.id) || n.id === curSelected;
+          reteNode.isPinned = pinnedSet.has(n.id);
           reteNode.onSelectNode = curOnSelect;
+          reteNode.onTogglePin = curOnTogglePin;
           reteNode.onChangeValue = curOnChange;
           if (focusedNode !== n.id && !inst.dragging.has(n.id)) {
             await inst.area.update("node", n.id);
@@ -1057,7 +1164,7 @@ export function Graph({
   // Sincronización de topología, parámetros, selección y posiciones (sin depender de ticks de `values`)
   useEffect(() => {
     queueSync();
-  }, [project, positions, nodeMeta, selected, selectedIds]);
+  }, [project, positions, nodeMeta, selected, selectedIds, pinnedIds]);
 
   // Lectura numérica en vivo directo en el DOM a 60fps sin re-renderizar nodos ni trabar sliders
   useEffect(() => {
@@ -1137,6 +1244,7 @@ export function Graph({
             for (const id of targets) onDelete(id);
             selectedIdsRef.current = new Set();
             setSelectedIds([]);
+            latestRef.current.onSelectMany?.([]);
           }
         }
       }}
@@ -1336,7 +1444,11 @@ export function Graph({
 
             selectedIdsRef.current = new Set(picked);
             setSelectedIds(picked);
-            if (picked.length > 0) onSelect(picked[0]);
+            if (latestRef.current.onSelectMany) {
+              latestRef.current.onSelectMany(picked);
+            } else if (picked.length > 0) {
+              onSelect(picked[0]);
+            }
           };
 
           const onMoveEv = (moveEv: PointerEvent) => {
