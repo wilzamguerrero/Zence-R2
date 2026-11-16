@@ -37,7 +37,7 @@ export const presets = {
 
 export function frameDocument(): string {
   const source = new URL("/vendor/hydra-synth.js", location.href).href;
-  return `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{width:100%;height:100%;display:block}</style></head><body><canvas id="screen"></canvas><script src="${source}"></script><script>
+  return `<!doctype html><html><head><style>html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#000}canvas{width:100%;height:100%;display:block}</style></head><body><canvas id="screen" width="960" height="540"></canvas><script src="${source}"></script><script>
   const canvas = document.querySelector("canvas");
   canvas.getContext("webgl", {preserveDrawingBuffer:true});
   const hydra = new Hydra({canvas, detectAudio:false, enableStreamCapture:false, makeGlobal:true, autoLoop:false, width:960, height:540});
@@ -63,7 +63,13 @@ export function frameDocument(): string {
     }
     if(data.type === "controls") controls = data.values;
     if(data.type === "playing") running = data.value;
-    if(data.type === "export") frameExport = data.value;
+    if(data.type === "export") {
+      frameExport = data.value;
+      if(frameExport && !busy) {
+        busy=true; lastExport=performance.now();
+        createImageBitmap(canvas).then(bitmap=>parent.postMessage({type:"frame",bitmap},"*",[bitmap])).catch(()=>{}).finally(()=>busy=false);
+      }
+    }
     if(data.type === "blackout") canvas.style.visibility = data.value ? "hidden" : "visible";
     if(data.type === "sourceFrame" && data.bitmap) {
       if(!liveSourceCanvas) {

@@ -33,6 +33,7 @@ import {
   Points,
   Scene,
   ShaderMaterial,
+  SRGBColorSpace,
   Vector3,
   WebGLRenderer,
 } from "three";
@@ -177,6 +178,7 @@ export function Viewport({
     videoCanvas.width = 960;
     videoCanvas.height = 540;
     const videoTexture = new CanvasTexture(videoCanvas);
+    videoTexture.colorSpace = SRGBColorSpace;
     const screenGeometry = new PlaneGeometry(6.4, 3.6);
     const screen = new Mesh(
       screenGeometry,

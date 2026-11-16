@@ -801,9 +801,11 @@ export function App() {
                 title="Motor Hydra"
                 sandbox="allow-scripts"
                 srcDoc={live.html}
-                style={{
-                  visibility: live.mode === "hydra" ? "visible" : "hidden",
-                }}
+                style={
+                  live.mode === "hydra"
+                    ? { opacity: 1, pointerEvents: "auto", zIndex: 1 }
+                    : { opacity: 1, pointerEvents: "none", zIndex: -1 }
+                }
               />
             }
           />
