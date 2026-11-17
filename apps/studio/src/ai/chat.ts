@@ -1,4 +1,5 @@
 ﻿import { activeProvider, chosenModel } from "./config.ts";
+import { ensureAdShown } from "./ads.ts";
 import { apiError, providerHeaders, wireProvider } from "./wire.ts";
 import type { ChatMessage, ProviderId } from "./types.ts";
 
@@ -28,7 +29,7 @@ export async function streamChat(options: StreamOptions): Promise<string> {
   const provider = options.provider ?? activeProvider();
   const model = options.model ?? chosenModel(provider);
 
-  const response = await fetch("/api/ai-chat", {
+  const send = (): Promise<Response> => fetch("/api/ai-chat", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -43,6 +44,20 @@ export async function streamChat(options: StreamOptions): Promise<string> {
     }),
     signal: options.signal,
   });
+
+  let response = await send();
+
+  // free-pi pausa las respuestas con `403 ads_required` cuando no consta que se
+  // estén mostrando anuncios. No es un problema de la cuenta ni de créditos: se
+  // pide un anuncio, se confirma su impresión y se reintenta una vez. Es lo
+  // mismo que hace el portal con la tarjeta abierta, y aquí no hay que pulsar
+  // nada (`ai/ads.ts`).
+  if (response.status === 403 && provider === "freepi") {
+    const detail = await response.clone().text().catch(() => "");
+    if (/ads_required|ads aren't displaying|ads aren't shown/i.test(detail)) {
+      if (await ensureAdShown(options.signal)) response = await send();
+    }
+  }
 
   if (!response.ok) throw await apiError(response);
 

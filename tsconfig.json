@@ -14,5 +14,5 @@
     "verbatimModuleSyntax": true,
     "skipLibCheck": true
   },
-  "include": ["apps/studio/src", "packages/engine", "examples"]
+  "include": ["apps/studio/src", "packages/engine", "examples", "api"]
 }

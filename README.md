@@ -46,6 +46,29 @@ Copiar `.env.example` como `.env.local` en la raíz, completar el proveedor y re
 
 Abrir **Asistente IA**, describir el visual y generar una propuesta. La petición incluye el código, los nodos y los ajustes del proyecto. Revisar la propuesta y pulsar **Llevar al editor**. Esta acción desactiva Auto, y el usuario ejecuta el código cuando termine de revisarlo.
 
+### Anuncios de free-pi (automático e invisible)
+
+free-pi paga la inferencia gratis con publicidad y su backend lo verifica: si no consta que el cliente pida un anuncio y reporte su impresión, corta con `403 ads_required`. El estudio lo resuelve solo, en segundo plano, sin nada que configurar y sin ningún elemento en pantalla:
+
+| Pieza | Qué hace |
+| --- | --- |
+| `api/_ads.ts` | Pide `/ads/next` (un anuncio cada 5 min), dispara el píxel de «gravity» si toca y reporta `/ads/impression` una vez por anuncio. |
+| `api/freepi-ads.ts` | `GET` entrega el anuncio vigente; `POST {step:"impression", ad_id}` confirma que se ha visto. El `click_token` no sale del servidor. |
+| `apps/studio/src/ai/ads.ts` | `startAdsKeepAlive()` mantiene el ciclo al arrancar, cada minuto y al cambiar de credencial o de proveedor. |
+| `apps/studio/src/ai/chat.ts` | Si la respuesta es `403 ads_required`, pide y confirma un anuncio y reintenta una vez. |
+
+Sólo se reporta mientras el estudio está abierto y consultando (si se cierra la pestaña, deja de reportarse). Con el proveedor activo distinto de free-pi no se pide ningún anuncio.
+
+### Versión de cliente (el aviso de «below required minimum»)
+
+free-pi ata la cabecera `x-client-version` a un mínimo: si se anuncia una más vieja, contesta `426 upgrade_required` («your free-pi CLI is below required minimum 0.6.21»). No es algo que se pueda dejar clavado en el código —caduca—, así que se resuelve solo, como en el portal:
+
+1. antes de hablar con free-pi se lee `/client-version` y se anuncia su `latest` (se recuerda 30 min, no se pregunta en cada mensaje);
+2. si aun así llega un `426`, se vuelve a leer, se reintenta con la versión nueva;
+3. si sigue igual, se deja de enviar la cabecera (es opcional) y se reintenta una vez más.
+
+Todo eso está en `api/_freepi.ts` (`ensureClientVersion`, `dropClientVersion`) y en el camino de `426` de `api/ai-chat.ts`. No hay nada que actualizar a mano.
+
 ## Modificar la interfaz
 
 | Archivo | Contenido |

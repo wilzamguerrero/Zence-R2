@@ -13,11 +13,12 @@
 
 import type { ApiHandler } from "./_types.ts";
 import { fromAnthropicReply, pipeAnthropicStream, toAnthropicBody } from "./_anthropic.ts";
+import { adsRequired, ensureAd, panelAlive, reportImpression } from "./_ads.ts";
 import {
   authHeaders, describe, explainBody, fetchWithFallback, noStore, pipeStream, readTarget,
   resolveKey,
 } from "./_ai.ts";
-import { freepiHeaders, isFreePi, pipeFreePiStream, replyText, resetSession as resetFreePiSession } from "./_freepi.ts";
+import { dropClientVersion, ensureClientVersion, freepiHeaders, isFreePi, pipeFreePiStream, replyText, resetSession as resetFreePiSession } from "./_freepi.ts";
 import {
   allowedModelsFromError, copilotAutoModel, copilotHeaders, copilotPlan, DEFAULT_COPILOT_HOST,
   integratorFromError, resolveAutoModel,
@@ -153,9 +154,12 @@ const handler: ApiHandler = async (req, res) => {
 
   // free-pi no pide otra forma del cuerpo, pero sí saber quién llama: una sesión
   // estable (`x-session-id`, porque sólo admite cuatro a la vez) y la versión del
-  // cliente que se anuncia. Ver `_freepi.ts`.
+  // cliente que se anuncia. La versión se lee de `/client-version` antes de
+  // hablar: si anunciamos una vieja, el backend corta con `426 upgrade_required`
+  // («your free-pi CLI is below required minimum …»). Ver `_freepi.ts`.
   const freepi = isFreePi(targetUrl);
-  const freepiExtra = freepi ? await freepiHeaders(key) : null;
+  if (freepi) await ensureClientVersion(key);
+  let freepiExtra = freepi ? await freepiHeaders(key) : null;
 
   // Copilot atiende a cada cuenta en el host que declara su plan; el genérico no
   // siempre sirve (una cuenta individual puede vivir en `api.individual…`). Se
@@ -253,6 +257,88 @@ const handler: ApiHandler = async (req, res) => {
           "unos segundos o cierra otra sesión. Esto no gasta cuota.",
       });
       return;
+    }
+
+    // free-pi corta con `403 ads_required` cuando no consta que se estén
+    // mostrando anuncios: es lo que paga la inferencia gratis, no un 403 de
+    // permisos ni falta de créditos. Se pide un anuncio, se reporta su impresión
+    // (sólo si hay una ventana del asistente abierta que vaya a pintarlo) y se
+    // reintenta una vez, que es lo que desbloquea. Ver `_ads.ts`.
+    if (freepi && !upstream.ok && upstream.status === 403 && key) {
+      const detail = await upstream.clone().text().catch(() => "");
+
+      if (adsRequired(upstream.status, detail)) {
+        const ad = await ensureAd(key, true);
+        const reported = Boolean(ad) && panelAlive(key) && await reportImpression(key, ad);
+        const second = reported ? await call(sent) : null;
+
+        if (second && (second.ok || second.status !== 403)) {
+          // O pasó, o falló por otra cosa (sesión, cuota, credencial): en ese caso
+          // el reintento lleva el motivo de verdad y no el de anuncios.
+          if (second.ok) {
+            console.warn("[ai-chat] free-pi: anuncio mostrado; la petición se reintentó y pasó.");
+          }
+          upstream = second;
+        } else {
+          res.status(403).json({
+            error: "freepi_ads",
+            message:
+              "free-pi ha pausado las respuestas porque no consta que se estén " +
+              "mostrando anuncios (código ads_required). No es falta de créditos. " +
+              (ad
+                ? "Ya hay un anuncio en la franja del asistente: en cuanto se pinte queda " +
+                  "contabilizado y la petición pasa sola al reintentar."
+                : "free-pi no tiene anuncio disponible ahora mismo (204); espera un rato " +
+                  "o usa otro proveedor."),
+          });
+          return;
+        }
+      }
+    }
+
+    // free-pi ata la `x-client-version` a un mínimo: una versión vieja contesta
+    // `426 upgrade_required` y no deja trabajar. No es algo que la persona pueda
+    // resolver desde aquí, así que se arregla solo, como en el portal:
+    //   1. se vuelve a leer `/client-version` y se reintenta con `latest`;
+    //   2. si aun así se queja, se deja de anunciar la cabecera (el backend la
+    //      acepta a faltar) y se reintenta una vez más.
+    if (freepi && !upstream.ok && upstream.status === 426) {
+      const learned = await ensureClientVersion(key, true);
+      if (learned) {
+        freepiExtra = await freepiHeaders(key);
+        const withVersion = await call(sent);
+        if (withVersion.ok) {
+          console.warn(`[ai-chat] free-pi: se actualizó x-client-version a ${learned} y la petición pasó.`);
+          upstream = withVersion;
+        } else if (withVersion.status === 426) {
+          dropClientVersion();
+          freepiExtra = await freepiHeaders(key);
+          const withoutVersion = await call(sent);
+          if (withoutVersion.ok) {
+            console.warn("[ai-chat] free-pi: sin x-client-version la petición pasó.");
+            upstream = withoutVersion;
+          } else {
+            upstream = withoutVersion;
+          }
+        } else {
+          upstream = withVersion;
+        }
+      }
+
+      if (!upstream.ok && upstream.status === 426) {
+        const detail = await upstream.clone().text().catch(() => "");
+        console.error("[ai-chat] free-pi 426:", detail.slice(0, 200));
+        res.status(426).json({
+          error: "freepi_version",
+          message:
+            "free-pi exige anunciar una versión de cliente más nueva. Se ha leído la " +
+            "última en /client-version, se ha reintentado y el backend sigue igual, así " +
+            "que se ha dejado de enviar esa cabecera (es opcional). Reintenta en unos " +
+            "segundos. " +
+            `El backend dijo: ${detail.slice(0, 160)}`,
+        });
+        return;
+      }
     }
 
     if (freepi && !upstream.ok && upstream.status === 401) {

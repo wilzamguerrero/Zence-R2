@@ -5,7 +5,7 @@ import { loadEnv, type Plugin } from "vite";
 import type { ApiHandler, ApiRequest, ApiResponse } from "../../api/_types.ts";
 
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
-const AI_ROUTES = new Set(["ai-chat", "ai-models", "ai-registry", "freepi-device", "github-device", "health"]);
+const AI_ROUTES = new Set(["ai-chat", "ai-models", "ai-registry", "freepi-ads", "freepi-device", "github-device", "health"]);
 
 function sendJson(res: ServerResponse, code: number, payload: unknown): void {
   if (!res.headersSent) res.setHeader("Content-Type", "application/json; charset=utf-8");

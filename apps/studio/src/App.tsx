@@ -21,6 +21,7 @@ import type { ChangeEvent, PointerEvent as ReactPointerEvent } from "react";
 import { compileHydraCode } from "../../../packages/engine/project.ts";
 import type { Edge, Node, Project } from "../../../packages/engine/project.ts";
 import { fixedStepSeconds } from "../../../packages/engine/clock.ts";
+import { startAdsKeepAlive } from "./ai/ads.ts";
 import { BrandMark } from "./components/BrandMark.tsx";
 import { CommandPalette } from "./components/CommandPalette.tsx";
 import type { PaletteAction } from "./components/CommandPalette.tsx";
@@ -300,6 +301,11 @@ export function App() {
       flushSession();
     };
   }, []);
+
+  // Los anuncios de free-pi se mantienen al día en segundo plano: es lo que paga
+  // la inferencia gratis y lo que evita el `403 ads_required`. Sin interfaz y
+  // sin ajustes; ver `ai/ads.ts`.
+  useEffect(() => startAdsKeepAlive(), []);
 
   useEffect(() => {
     try {

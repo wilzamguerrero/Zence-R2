@@ -11,7 +11,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build apps/studio",
     "preview": "vite preview apps/studio --port 4173 --strictPort",
-    "test": "node --test packages/engine/project.test.ts",
+    "test": "node --test packages/engine/project.test.ts api/_ads.test.ts api/freepi-ads.test.ts api/freepi-version.test.ts",
     "postinstall": "node scripts/prepare.mjs"
   },
   "dependencies": {

@@ -29,8 +29,16 @@
  * `portal_app/freepi.py`, 2026-11-01).
  */
 
-/** La versión que se anuncia cuando nadie dice otra cosa. */
-const DEFAULT_CLIENT_VERSION = "0.6.10";
+/**
+ * La versión que se anuncia cuando nadie ha leído todavía la del backend.
+ *
+ * Es sólo el punto de partida: antes del primer mensaje se pregunta a
+ * `/client-version` cuál es la buena (`ensureClientVersion`) y, si aun así el
+ * backend contesta `426 upgrade_required`, se vuelve a leer y se reintenta. Un
+ * número fijo aquí acaba caducando —pasó con 0.6.10 y el mínimo 0.6.21— y deja
+ * el asistente sin poder responder hasta que alguien edite el código.
+ */
+const DEFAULT_CLIENT_VERSION = "0.6.21";
 
 /** El host sin `/v1`: ahí viven `/auth/*`, `/me` y `/client-version`. */
 export const FREEPI_ROOT = "https://api.freepi.ai";
@@ -86,6 +94,25 @@ export function resetSession(key: string | null): void {
 
 /** La versión de cliente que se va a anunciar. */
 let clientVersion = DEFAULT_CLIENT_VERSION;
+/** Cuándo se leyó por última vez la versión del backend (ms). */
+let versionAt = 0;
+/** Cierto cuando la versión de arriba salió de `/client-version`. */
+let versionKnown = false;
+
+/**
+ * ¿Se apagó la cabecera a propósito?
+ *
+ * Con la versión vacía (o `-`) no se anuncia nada, que es la única forma de que
+ * el backend nunca bloquee por mínimo. En ese estado la versión no se rellena
+ * sola: si alguien la apagó, fue porque lo necesitaba.
+ */
+function versionOff(): boolean {
+  const value = clientVersion.trim().toLowerCase();
+  return !value || value === "-" || value === "none" || value === "sin";
+}
+/** Cuánto vale una versión leída: es requisito, no preferencia, pero tampoco
+ *  hay que preguntar en cada mensaje. */
+const VERSION_TTL_MS = 30 * 60_000;
 
 /**
  * Fija la versión anunciada, o la apaga con `null`.
@@ -96,6 +123,76 @@ let clientVersion = DEFAULT_CLIENT_VERSION;
  */
 export function setClientVersion(version: string | null): void {
   clientVersion = version && version.trim() ? version.trim() : "";
+  versionKnown = false;
+  versionAt = 0;
+}
+
+/** Lo que `/client-version` publica sobre versiones: la mínima y la última. */
+interface ClientVersions {
+  min: string;
+  latest: string;
+}
+
+/** Lee `min`/`latest` de `/client-version`. `null` si no se pudo. */
+async function readClientVersions(key: string | null): Promise<ClientVersions | null> {
+  const headers: Record<string, string> = { Accept: "application/json" };
+  if (key) headers.Authorization = `Bearer ${key}`;
+  if (clientVersion) headers["x-client-version"] = clientVersion;
+
+  try {
+    const response = await fetch(`${FREEPI_ROOT}/client-version`, {
+      headers,
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok) return null;
+    const payload = await response.json() as Record<string, unknown>;
+    const latest = typeof payload.latest === "string" ? payload.latest.trim() : "";
+    const min = typeof payload.min === "string" ? payload.min.trim() : "";
+    if (!latest && !min) return null;
+    return { min, latest };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Deja anunciada la versión que el backend acepta hoy, sin que nadie toque nada.
+ *
+ * El backend de free-pi ata la `x-client-version` a un mínimo: si anunciamos una
+ * más vieja contesta `426 upgrade_required` («your free-pi CLI is below required
+ * minimum 0.6.21»). El portal lo arregla pidiendo el catálogo y quedándose con
+ * `latest` (`repair_client_version`); aquí se hace igual, antes del primer
+ * mensaje y otra vez si el backend se queja.
+ *
+ * Se pregunta como mucho cada `VERSION_TTL_MS`, porque es un requisito y no una
+ * preferencia, pero tampoco hace falta consultarlo en cada mensaje. Nunca se baja
+ * la versión sola: subir es seguro, bajar no aporta nada.
+ */
+export async function ensureClientVersion(key: string | null, force = false): Promise<string> {
+  if (versionOff()) return clientVersion;
+  if (!force && versionKnown && Date.now() - versionAt < VERSION_TTL_MS) return clientVersion;
+
+  const seen = await readClientVersions(key);
+  versionAt = Date.now();
+  if (!seen) return clientVersion;
+
+  versionKnown = true;
+  const wanted = seen.latest || seen.min;
+  if (wanted && comparesLower(clientVersion, wanted)) clientVersion = wanted;
+  return clientVersion;
+}
+
+/**
+ * Apaga la cabecera del todo.
+ *
+ * El backend la acepta a faltar (medido: sin ella responde 200), así que es la
+ * salida cuando exige una versión que no se puede leer: mejor no anunciar nada
+ * que anunciar algo que bloquea.
+ */
+export function dropClientVersion(): void {
+  clientVersion = "";
+  versionKnown = true;
+  versionAt = Date.now();
 }
 
 /** Las cabeceras propias de free-pi, ya con la sesión resuelta. */
@@ -135,11 +232,15 @@ export async function freepiCatalog(key: string | null): Promise<FreePiCatalog |
     if (!response.ok) return null;
     const payload = await response.json() as Record<string, unknown>;
 
-    // La versión se autorrepara: si estamos por debajo del mínimo, se sube a
-    // `latest`. Nunca se baja sola, para no pelear con una versión puesta a mano.
+    // La versión se autorrepara igual que en `ensureClientVersion`.
     const latest = typeof payload.latest === "string" ? payload.latest.trim() : "";
     const min = typeof payload.min === "string" ? payload.min.trim() : "";
-    if (latest && comparesLower(clientVersion, min)) clientVersion = latest;
+    versionAt = Date.now();
+    versionKnown = Boolean(latest || min);
+    if (!versionOff()) {
+      const wanted = latest || min;
+      if (wanted && comparesLower(clientVersion, wanted)) clientVersion = wanted;
+    }
 
     const raw = Array.isArray(payload.models) ? payload.models : [];
     const models = raw.map((entry) => {
