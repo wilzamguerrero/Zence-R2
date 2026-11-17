@@ -4,3 +4,5 @@ dist/
 *.local
 apps/studio/public/vendor/
 apps/studio/public/wasm/
+.wrangler/
+.env.local

@@ -13,6 +13,23 @@ npm run dev
 
 Abrir http://localhost:5173. Mantener la terminal abierta. El servidor también sirve el panel remoto en la red local.
 
+## Desplegar en Cloudflare Pages
+
+Hay dos formas de ejecutar los endpoints `api/*`, y las dos usan **el mismo código**:
+
+| Dónde | Qué los ejecuta |
+| --- | --- |
+| `npm run dev` y Vercel | `api/*.ts`, con la firma `req`/`res` de siempre (el plugin de Vite los monta en `/api/*`). |
+| Cloudflare Pages | `functions/api/[[path]].ts`, que adapta el `Request` web al mismo `req`/`res` y carga el handler de `api/` que toque. |
+
+En Cloudflare, **`api/` no se ejecuta**: sólo se ejecuta `functions/`. Si se olvida, los `POST /api/*` acaban en el servidor de estáticos y contestan `405 Method Not Allowed` (el «El servidor respondió 405» del asistente) y los `GET` devuelven el `index.html`. Por eso:
+
+- el proyecto tiene que publicarse con la carpeta `functions/` en la raíz del repositorio;
+- `apps/studio/public/_routes.json` debe incluir `/api/*` (si se toca y se quita, vuelve el 405);
+- los secretos (`FREEPI_TOKEN`, `OPENAI_API_KEY`…) se configuran como variables de entorno del proyecto en Pages; el puente las copia a `process.env` para los handlers, y marca `CF_PAGES=1`.
+
+Ajustes de compilación: `npm run build` y directorio de salida `apps/studio/dist`.
+
 ## Funciones del estudio
 
 - **Espacio de trabajo modular y redimensionable**: la barra superior permite mostrar u ocultar de forma independiente **Grafo** (`Alt+1`), **Visor** (`Alt+2`), **Código** (`Alt+3`), **Overlay** (`Alt+C` / `Ctrl+Shift+H`) e **Inspector** (`Alt+4`), o cambiar entre vistas rápidas (**Estudio**, **Hydra Live**, **VJ**, **Escenario**, restaurar todo con `Alt+0`). Los divisores entre paneles son arrastrables (doble clic restablece) y la **Paleta de comandos** (`Ctrl+K`) permite ejecutar cualquier acción al instante.
